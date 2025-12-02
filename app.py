@@ -1586,13 +1586,6 @@ def ui_profile_page():
                 st.session_state["user"] = dict(get_user_by_id(user["id"]))
                 st.success("Đã cập nhật thông tin.")
 
-        st.markdown("---")
-        if st.button("🚪 Đăng xuất", key="profile_logout"):
-            delete_session_token(st.session_state.get("login_token"))
-            st.session_state["user"] = None
-            st.session_state["login_token"] = None
-            st.rerun()
-
 def ui_personal_ranking_edit(owner_id: int):
     """
     Trang riêng chỉnh sửa BXH cá nhân của 1 người chơi
@@ -2305,21 +2298,40 @@ def ui_tournament_standings(t_id):
 def main():
     init_db()
 
-    # Không còn auto-login từ token trên URL, mỗi trình duyệt có session riêng
     user = st.session_state["user"]
-    
+
     # --- HEADER ---
     c_logo, c_title, c_user = st.columns([0.8, 7, 2])
-    c_logo.markdown("<div style='font-size:2.5rem; text-align:center;'>🏓</div>", unsafe_allow_html=True)
-    c_title.markdown("<h1 style='margin:0; font-size: 1.8rem; padding-top:5px; color:#111827;'>HNX Pickleball Allstars</h1>", unsafe_allow_html=True)
+
+    c_logo.markdown(
+        "<div style='font-size:2.5rem; text-align:center;'>🏓</div>",
+        unsafe_allow_html=True
+    )
+
+    c_title.markdown(
+        "<h1 style='margin:0; font-size: 1.8rem; padding-top:5px; color:#111827;'>HNX Pickleball Allstars</h1>",
+        unsafe_allow_html=True
+    )
+
+    # Góc phải: Hi username + Logout
     if user:
-        c_user.markdown(
-            f"<div style='text-align:right; padding-top:15px; font-size:0.9rem;'>Hi, <b>{user['full_name']}</b></div>",
-            unsafe_allow_html=True
-        )
+        with c_user:
+            c1, c2 = st.columns([0.5, 0.5])
+            with c1:
+                st.markdown(
+                    f"<div style='text-align:right; padding-top:15px; font-size:0.9rem; vertical-align: middle;'>Hi, <b>{user['full_name']}</b></div>",
+                    unsafe_allow_html=True
+                )
+            with c2:
+                if st.button("Đăng xuất", key="logout_btn", help="Đăng xuất", use_container_width=True):
+                    st.session_state.clear()
+                    st.rerun()
+    else:
+        c_user.write("")
 
     # --- MENU CHÍNH ---
     tabs_list = ["Trang chủ", "Bảng xếp hạng"]
+
     if not user:
         tabs_list.append("Đăng nhập")
     else:
@@ -2331,8 +2343,10 @@ def main():
     selected_tabs = st.tabs(tabs_list)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # --- TABS RENDER ---
     with selected_tabs[0]:
         ui_home()
+
     with selected_tabs[1]:
         ui_hnpr_page()
 
@@ -2347,6 +2361,7 @@ def main():
             with selected_tabs[idx + 1]:
                 ui_tournament_page()
             idx += 2
+
         with selected_tabs[idx]:
             ui_profile_page()
     
