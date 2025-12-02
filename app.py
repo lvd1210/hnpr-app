@@ -4,6 +4,8 @@ import hashlib
 from datetime import datetime
 import random
 import secrets
+import pandas as pd
+from streamlit_sortables import sort_items
 
 # ==========================================
 # 1. PAGE CONFIG & CSS STYLING (HIERARCHY UI)
@@ -119,7 +121,7 @@ st.markdown("""
         font-size: 1.2rem;
         font-weight: 700;
         color: #111827;
-        margin-bottom: 12px;
+        margin-bottom: 0px;
     }
 
     .info-grid {
@@ -256,8 +258,6 @@ def init_db():
 
     conn.close()
 
-# ------------------ Auth helpers ------------------ #
-
 def hash_password(pw: str) -> str:
     return hashlib.sha256(pw.encode("utf-8")).hexdigest()
 
@@ -288,6 +288,79 @@ def login(username, password):
     return user, None
 
 # ------------------ Session helpers ------------------ #
+
+def ranking_sortable_combined(order_ids, id_to_player, key_prefix: str):
+    """
+    Danh sách duy nhất, có:
+    - Drag & drop
+    - Nút ⬆ ⬇ ngay trên chính danh sách đó
+    """
+
+    # SESSION STATE -------------------------
+    skey = f"{key_prefix}_order"
+    if skey not in st.session_state:
+        st.session_state[skey] = list(order_ids)
+    else:
+        # Đồng bộ nếu có người mới
+        cur = st.session_state[skey]
+        for uid in order_ids:
+            if uid not in cur:
+                cur.append(uid)
+        valid = set(order_ids)
+        cur = [uid for uid in cur if uid in valid]
+        st.session_state[skey] = cur
+
+    working = st.session_state[skey]
+
+    # TẠO LABEL KÉO THẢ ---------------------
+    labels = []
+    uid_map = {}   # label -> uid
+
+    for idx, uid in enumerate(working, start=1):
+        p = id_to_player[uid]
+        label = f"{idx}. {p['full_name']}"
+        labels.append(label)
+        uid_map[label] = uid
+
+    st.caption("Kéo–thả để sắp xếp. Hoặc dùng nút ⬆ ⬇ để đổi nhanh.")
+
+    # KÉO THẢ -------------------------------
+    new_labels = sort_items(
+        labels,
+        direction="vertical",
+        key=f"{key_prefix}_sort"
+    )
+
+    # MAP NGƯỢC LẠI --------------------------------
+    new_order = [uid_map[lbl] for lbl in new_labels]
+
+    # CẬP NHẬT SESSION
+    st.session_state[skey] = new_order
+
+    # HIỂN THỊ DANH SÁCH + NÚT UP/DOWN ----------------
+    for i, uid in enumerate(new_order):
+        p = id_to_player[uid]
+        col1, col2, col3, col4 = st.columns([0.1, 0.7, 0.1, 0.1])
+        with col1:
+            st.write(f"{i+1}.")
+        with col2:
+            st.write(p["full_name"])
+
+        # NÚT UP
+        with col3:
+            if st.button("⬆", key=f"{key_prefix}_up_{uid}", help="Đẩy lên") and i > 0:
+                new_order[i-1], new_order[i] = new_order[i], new_order[i-1]
+                st.session_state[skey] = new_order
+                st.rerun()
+
+        # NÚT DOWN
+        with col4:
+            if st.button("⬇", key=f"{key_prefix}_down_{uid}", help="Đẩy xuống") and i < len(new_order)-1:
+                new_order[i+1], new_order[i] = new_order[i], new_order[i+1]
+                st.session_state[skey] = new_order
+                st.rerun()
+
+    return new_order
 
 def create_session_token(user_id: int) -> str:
     token = secrets.token_hex(16)
@@ -948,147 +1021,218 @@ def ui_member_management():
 
     conn.close()
 
-def ui_hnpr_page():
-    hnpr = compute_hnpr()
-    btc_rank = get_btc_ranking()
+def ui_btc_ranking_edit():
+    """
+    Trang riêng để Ban tổ chức chỉnh BXH BTC
+    - Có 4 nút: mũi tên đôi (±3 bậc), mũi tên đơn (±1 bậc)
+    """
+    require_role(["admin", "btc"])
 
-    user = st.session_state.get("user")
-    is_admin = bool(user.get("is_admin", 0)) if user else False
-    is_btc = bool(user.get("is_btc", 0)) if user else False
-    can_edit_btc = (is_admin or is_btc)
+    st.markdown("### ✏️ Chỉnh sửa BXH do Ban tổ chức")
+    st.caption(
+        "Dùng các nút ở cuối mỗi dòng để di chuyển VĐV: "
+        "⏫ / ⏬ = lên/xuống 3 bậc, ▲ / ▼ = lên/xuống 1 bậc."
+    )
 
-    # =========================
-    # PHẦN XEM: HNPR & BXH BTC SIDE-BY-SIDE
-    # =========================
-    col_left, col_right = st.columns(2)
-
-    # --- Cột trái: HNPR ---
-    with col_left:
-        st.markdown("#### BXH HNPR (bởi cộng đồng thành viên)")
-
-        if not hnpr:
-            st.info("Chưa có đủ dữ liệu để tính HNPR.")
-        else:
-            display_rows = []
-            for idx, r in enumerate(hnpr, start=1):
-                medal = ""#🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else ""
-                display_rows.append({
-                    "STT": f"{idx} {medal}",
-                    "Tên VĐV": r["full_name"],
-                    "HNPR": round(r["avg_pos"], 2),
-                })
-
-            st.dataframe(
-                display_rows,
-                hide_index=True,
-                use_container_width=True,
-                height=500,
-            )
-
-    # --- Cột phải: BXH BTC ---
-    with col_right:
-        st.markdown("#### BXH của Ban tổ chức")
-
-        if not btc_rank:
-            st.info("Chưa có BXH do Ban tổ chức thiết lập.")
-        else:
-            btc_rows = []
-            for idx, r in enumerate(btc_rank, start=1):
-                btc_rows.append({
-                    "STT": idx,
-                    "Tên VĐV": r["full_name"],
-                })
-
-            st.dataframe(
-                btc_rows,
-                hide_index=True,
-                use_container_width=True,
-                height=500,
-            )
-
-    # =========================
-    # PHẦN QUẢN LÝ BXH BTC (chỉ Admin/BTC)
-    # =========================
-    if not can_edit_btc:
-        # Public / player: chỉ xem 2 bảng ở trên
-        return
-
-    st.markdown("---")
-    st.markdown("### 🛠️ Quản lý BXH do Ban tổ chức thiết lập")
+    # --- Nút quay lại trang BXH / khởi tạo lại ---
+    c_back, c_reset = st.columns([1, 1])
+    with c_back:
+        if st.button("⬅ Quay lại xem BXH", use_container_width=True, key="btc_back"):
+            st.session_state["btc_edit_mode"] = False
+            st.session_state.pop("btc_edit_order", None)
+            st.rerun()
 
     players = get_all_players(only_approved=True)
     if not players:
         st.info("Chưa có thành viên nào để xếp hạng.")
         return
 
-    # Nếu chưa có BXH BTC: cho phép khởi tạo
-    if not btc_rank:
-        st.write("Hiện chưa có BXH BTC. Bạn có thể khởi tạo dựa trên HNPR (nếu có) hoặc thứ tự ABC.")
+    btc_rank = get_btc_ranking()
+    hnpr = compute_hnpr()
 
-        if st.button("Tạo BXH BTC dựa trên HNPR / ABC", type="primary"):
+    def build_default_btc_order():
+        # Nếu đã có BXH BTC -> dùng thứ tự hiện tại
+        if btc_rank:
+            base_ids = [r["ranked_user_id"] for r in btc_rank]
+        else:
+            # Chưa có: ưu tiên theo HNPR, sau đó bổ sung theo ABC
             if hnpr:
-                order_ids = [r["user_id"] for r in hnpr]
-                current_set = set(order_ids)
-                others = [p for p in players if p["id"] not in current_set]
-                others_sorted = sorted(others, key=lambda p: p["full_name"])
-                order_ids.extend([p["id"] for p in others_sorted])
+                base_ids = [r["user_id"] for r in hnpr]
             else:
-                players_sorted = sorted(players, key=lambda p: p["full_name"])
-                order_ids = [p["id"] for p in players_sorted]
+                base_ids = []
 
-            save_btc_ranking(order_ids)
-            st.success("Đã khởi tạo BXH BTC.")
+        base_set = set(base_ids)
+        others = [p for p in players if p["id"] not in base_set]
+        others_sorted = sorted(others, key=lambda p: p["full_name"])
+        base_ids.extend([p["id"] for p in others_sorted])
+        return base_ids
+
+    with c_reset:
+        if st.button(
+            "🔄 Khởi tạo lại từ HNPR / ABC",
+            use_container_width=True,
+            key="btc_reset",
+        ):
+            st.session_state["btc_edit_order"] = build_default_btc_order()
+            st.success("Đã khởi tạo lại danh sách BXH BTC theo HNPR/ABC.")
             st.rerun()
+
+    # Khởi tạo state thứ tự
+    if "btc_edit_order" not in st.session_state:
+        st.session_state["btc_edit_order"] = build_default_btc_order()
+
+    order = st.session_state["btc_edit_order"]
+    id_to_name = {p["id"]: p["full_name"] for p in players}
+
+    # Loại ID không còn tồn tại
+    order = [uid for uid in order if uid in id_to_name]
+    st.session_state["btc_edit_order"] = order
+
+    st.markdown("#### Danh sách xếp hạng hiện tại")
+
+    # Để tránh sửa list khi đang iterate, gom action lại
+    action = None  # (index, offset)
+
+    for idx, uid in enumerate(order):
+        name = id_to_name.get(uid, f"ID {uid}")
+        col1, col2, col3 = st.columns([0.1, 0.6, 0.3])
+
+        with col1:
+            st.markdown(f"**{idx + 1}**")
+
+        with col2:
+            st.write(name)
+
+        with col3:
+            c1, c2, c3, c4 = st.columns(4)
+            # ⏫: lên 3 bậc
+            if c1.button("⏫", key=f"btc_up3_{uid}"):
+                action = (idx, -3)
+            # ▲: lên 1 bậc
+            if c2.button("▲", key=f"btc_up1_{uid}"):
+                action = (idx, -1)
+            # ▼: xuống 1 bậc
+            if c3.button("▼", key=f"btc_down1_{uid}"):
+                action = (idx, +1)
+            # ⏬: xuống 3 bậc
+            if c4.button("⏬", key=f"btc_down3_{uid}"):
+                action = (idx, +3)
+
+    # Thực hiện di chuyển sau khi biết nút nào được bấm
+    if action is not None:
+        idx, offset = action
+        new_idx = max(0, min(len(order) - 1, idx + offset))
+        if new_idx != idx:
+            new_order = list(order)
+            item = new_order.pop(idx)
+            new_order.insert(new_idx, item)
+            st.session_state["btc_edit_order"] = new_order
+        st.rerun()
+
+    st.markdown("---")
+    c_save, c_delete = st.columns([2, 1])
+
+    # Nút Lưu BXH
+    with c_save:
+        if st.button(
+            "💾 Lưu BXH BTC",
+            type="primary",
+            use_container_width=True,
+            key="btc_save",
+        ):
+            current_order = st.session_state.get("btc_edit_order", [])
+            if not current_order:
+                st.warning("Danh sách hiện tại đang trống, không thể lưu.")
+            else:
+                save_btc_ranking(current_order)
+                st.success("Đã lưu BXH BTC.")
+                st.session_state["btc_edit_mode"] = False
+                st.session_state.pop("btc_edit_order", None)
+                st.rerun()
+
+    # Nút Xoá BXH
+    with c_delete:
+        if st.button(
+            "🗑 Xoá BXH BTC",
+            use_container_width=True,
+            key="btc_delete",
+        ):
+            delete_btc_ranking()
+            st.session_state.pop("btc_edit_order", None)
+            st.success("Đã xoá toàn bộ BXH BTC.")
+            # Sau khi xoá thì quay lại trang xem BXH
+            st.session_state["btc_edit_mode"] = False
+            st.rerun()
+
+def ui_hnpr_page():
+    hnpr = compute_hnpr()
+    btc_rank = get_btc_ranking()
+
+    user = st.session_state.get("user")
+    role = user.get("role") if user else None
+    is_admin = role == "admin"
+    is_btc = role == "btc"
+    can_edit_btc = is_admin or is_btc
+
+    # Nếu đang ở chế độ chỉnh sửa BXH BTC
+    if can_edit_btc and st.session_state.get("btc_edit_mode", False):
+        ui_btc_ranking_edit()
         return
 
-    # Đã có BXH BTC: UI chỉnh sửa bằng nút lên/xuống
-    st.write("Dùng nút lên/xuống để điều chỉnh BXH chung (1 là cao nhất).")
+    col_left, col_right = st.columns(2)
 
-    # Khởi tạo state lần đầu
-    if "btc_order" not in st.session_state:
-        base_ids = [r["ranked_user_id"] for r in btc_rank]
-        base_set = set(base_ids)
-        extra_ids = [p["id"] for p in players if p["id"] not in base_set]
-        st.session_state["btc_order"] = base_ids + extra_ids
+    # HNPR
+    with col_left:
+        st.markdown("#### BXH HNPR (do thành viên bình chọn)")
+        if not hnpr:
+            st.info("Chưa có đủ dữ liệu để tính HNPR.")
+        else:
+            rows = []
+            for r in hnpr:
+                rows.append(
+                    {
+                        "Thứ hạng": r["rank"],
+                        "Tên VĐV": r["full_name"],
+                        "HNPR (vị trí TB)": round(r["avg_pos"], 2),
+                        "Số phiếu": r["vote_count"],
+                    }
+                )
+            st.dataframe(
+                rows,
+                hide_index=True,
+                use_container_width=True,
+                height=500,
+            )
 
-    order = st.session_state["btc_order"]
-    id_to_player = {p["id"]: p for p in players}
+    # BXH BTC
+    with col_right:
+        st.markdown("#### BXH do Ban tổ chức thiết lập")
+        if not btc_rank:
+            st.info("Chưa có BXH BTC.")
+        else:
+            rows = []
+            for r in btc_rank:
+                rows.append(
+                    {
+                        "Thứ hạng": r["position"],
+                        "Tên VĐV": r["full_name"],
+                    }
+                )
+            st.dataframe(
+                rows,
+                hide_index=True,
+                use_container_width=True,
+                height=500,
+            )
 
-    for i, uid in enumerate(order):
-        player = id_to_player.get(uid)
-        if not player:
-            continue
+    if not can_edit_btc:
+        return
 
-        cols = st.columns([0.1, 0.6, 0.15, 0.15])
-        cols[0].write(i + 1)
-        cols[1].write(player["full_name"])
-
-        # KEY phải khác hoàn toàn với trang BXH cá nhân
-        up_key = f"btc_up_hnpr_{uid}_{i}"
-        down_key = f"btc_down_hnpr_{uid}_{i}"
-
-        if cols[2].button("⬆", key=up_key) and i > 0:
-            order[i - 1], order[i] = order[i], order[i - 1]
-            st.session_state["btc_order"] = order
-            st.rerun()
-
-        if cols[3].button("⬇", key=down_key) and i < len(order) - 1:
-            order[i + 1], order[i] = order[i], order[i + 1]
-            st.session_state["btc_order"] = order
-            st.rerun()
-
-    col_save, col_del = st.columns(2)
-    with col_save:
-        if st.button("💾 Lưu BXH BTC", type="primary", use_container_width=True):
-            save_btc_ranking(order)
-            st.success("Đã lưu BXH BTC.")
-
-    with col_del:
-        if st.button("🗑 Xoá toàn bộ BXH BTC", use_container_width=True):
-            delete_btc_ranking()
-            st.session_state.pop("btc_order", None)
-            st.success("Đã xoá BXH BTC.")
-            st.rerun()
+    st.markdown("---")
+    if st.button("✏️ Quản lý BXH Ban Tổ chức", type="primary", key="btc_edit_btn"):
+        st.session_state["btc_edit_mode"] = True
+        st.session_state.pop("btc_edit_order", None)
+        st.rerun()
 
 def ui_home():
     st.subheader("Các giải đang diễn ra 🔥")
@@ -1129,82 +1273,71 @@ def ui_home():
 def ui_profile_page():
     require_login()
     user = st.session_state["user"]
+    owner_id = user["id"]
+
+    # Nếu đang chỉnh BXH cá nhân -> sang trang riêng
+    if st.session_state.get("personal_edit_mode", False):
+        ui_personal_ranking_edit(owner_id)
+        return
 
     st.subheader(f"👤 Trang cá nhân: {user['full_name']}")
 
     tab_info, tab_rank = st.tabs(["Thông tin cá nhân", "Bảng xếp hạng cá nhân"])
 
-    # ===== TAB BẢNG XẾP HẠNG CÁ NHÂN =====
+    # ====== TAB BXH CÁ NHÂN ======
     with tab_rank:
-        owner_id = user["id"]
         players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
+        existing = get_personal_ranking(owner_id)
 
         if not players:
             st.info("Chưa có đủ thành viên khác để xếp hạng.")
         else:
-            existing = get_personal_ranking(owner_id)
-
             if not existing:
                 st.info("Chưa có BXH cá nhân.")
                 if st.button(
                     "Tạo BXH tự động",
                     type="primary",
-                    key="profile_create_personal_ranking",
+                    key="btn_create_personal_bxh",
                 ):
-                    order_ids = get_hnpr_order_or_alpha()
-                    order_ids = [uid for uid in order_ids if uid != owner_id]
+                    hnpr = compute_hnpr()
+                    if hnpr:
+                        order_ids = [r["user_id"] for r in hnpr if r["user_id"] != owner_id]
+                    else:
+                        order_ids = [
+                            p["id"] for p in sorted(players, key=lambda p: p["full_name"])
+                        ]
                     save_personal_ranking(owner_id, order_ids)
                     st.success("Đã tạo BXH cá nhân.")
                     st.rerun()
             else:
-                # Khởi tạo thứ tự trong session_state
-                if "personal_order" not in st.session_state:
-                    st.session_state["personal_order"] = [
-                        r["ranked_user_id"] for r in existing
-                    ]
+                st.markdown("#### BXH cá nhân hiện tại")
 
-                order = st.session_state["personal_order"]
-
-                for i, uid in enumerate(order):
-                    player = next((p for p in players if p["id"] == uid), None)
-                    if not player:
-                        continue
-
-                    cols = st.columns([0.1, 0.6, 0.15, 0.15])
-                    cols[0].write(f"#{i + 1}")
-                    cols[1].write(player["full_name"])
-
-                    if cols[2].button("⬆", key=f"profile_up_{uid}_{i}") and i > 0:
-                        order[i - 1], order[i] = order[i], order[i - 1]
-                        st.session_state["personal_order"] = order
-                        st.rerun()
-
-                    if cols[3].button("⬇", key=f"profile_down_{uid}_{i}") and i < len(order) - 1:
-                        order[i + 1], order[i] = order[i], order[i + 1]
-                        st.session_state["personal_order"] = order
-                        st.rerun()
+                rows = []
+                for r in existing:
+                    rows.append(
+                        {
+                            "Thứ hạng": r["position"],
+                            "Tên VĐV": r["full_name"],
+                        }
+                    )
+                st.dataframe(
+                    rows,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=500,
+                )
 
                 st.markdown("---")
-                c1, c2 = st.columns(2)
-                if c1.button(
-                    "💾 Lưu BXH",
+                if st.button(
+                    "✏️ Sửa BXH cá nhân",
                     type="primary",
-                    use_container_width=True,
-                    key="profile_save_personal_ranking",
+                    key="personal_edit_btn",
                 ):
-                    save_personal_ranking(owner_id, order)
-                    st.success("Đã lưu BXH cá nhân.")
-
-                if c2.button(
-                    "🗑️ Xoá BXH",
-                    use_container_width=True,
-                    key="profile_delete_personal_ranking",
-                ):
-                    delete_personal_ranking(owner_id)
-                    st.session_state.pop("personal_order", None)
+                    st.session_state["personal_edit_mode"] = True
+                    st.session_state.pop(f"personal_edit_order_{owner_id}", None)
                     st.rerun()
 
-    # ===== TAB THÔNG TIN CÁ NHÂN =====
+    # ====== TAB THÔNG TIN CÁ NHÂN ======
     with tab_info:
         col_form, _ = st.columns([1, 1])
         with col_form:
@@ -1254,8 +1387,6 @@ def ui_profile_page():
                     )
                 conn.commit()
                 conn.close()
-
-                # cập nhật lại session
                 st.session_state["user"] = dict(get_user_by_id(user["id"]))
                 st.success("Đã cập nhật thông tin.")
 
@@ -1264,6 +1395,156 @@ def ui_profile_page():
             delete_session_token(st.session_state.get("login_token"))
             st.session_state["user"] = None
             st.session_state["login_token"] = None
+            st.rerun()
+
+def ui_personal_ranking_edit(owner_id: int):
+    """
+    Trang riêng chỉnh sửa BXH cá nhân của 1 người chơi
+    - Dùng mũi tên đôi (±3) và mũi tên đơn (±1) giống trang BTC
+    """
+    require_login()
+    user = st.session_state["user"]
+    # Chỉ cho chính chủ hoặc admin chỉnh sửa
+    role = user.get("role")
+    if user["id"] != owner_id and role not in ("admin",):
+        st.error("Bạn không có quyền chỉnh sửa BXH cá nhân này.")
+        return
+
+    st.markdown("### ✏️ Chỉnh sửa BXH cá nhân")
+    st.caption(
+        "Dùng các nút ở cuối mỗi dòng để di chuyển VĐV: "
+        "⏫ / ⏬ = lên/xuống 3 bậc, ▲ / ▼ = lên/xuống 1 bậc."
+    )
+
+    # Nút quay lại Trang cá nhân + khởi tạo lại
+    c_back, c_reset = st.columns([1, 1])
+    with c_back:
+        if st.button(
+            "⬅ Quay lại Trang cá nhân",
+            use_container_width=True,
+            key="personal_back",
+        ):
+            st.session_state["personal_edit_mode"] = False
+            st.session_state.pop(f"personal_edit_order_{owner_id}", None)
+            st.rerun()
+
+    players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
+    if not players:
+        st.info("Chưa có đủ thành viên khác để xếp hạng.")
+        return
+
+    existing = get_personal_ranking(owner_id)
+    hnpr = compute_hnpr()
+
+    def build_default_personal_order():
+        if existing:
+            base_ids = [r["ranked_user_id"] for r in existing]
+        else:
+            if hnpr:
+                base_ids = [r["user_id"] for r in hnpr if r["user_id"] != owner_id]
+            else:
+                base_ids = []
+        base_set = set(base_ids)
+        others = [p for p in players if p["id"] not in base_set]
+        others_sorted = sorted(others, key=lambda p: p["full_name"])
+        base_ids.extend([p["id"] for p in others_sorted])
+        return base_ids
+
+    # Khởi tạo lại theo HNPR/ABC
+    with c_reset:
+        if st.button(
+            "🔄 Khởi tạo lại từ HNPR / ABC",
+            use_container_width=True,
+            key="personal_reset",
+        ):
+            st.session_state[f"personal_edit_order_{owner_id}"] = (
+                build_default_personal_order()
+            )
+            st.success("Đã khởi tạo lại BXH cá nhân theo HNPR/ABC.")
+            st.rerun()
+
+    state_key = f"personal_edit_order_{owner_id}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = build_default_personal_order()
+
+    order = st.session_state[state_key]
+    id_to_name = {p["id"]: p["full_name"] for p in players}
+
+    # Loại id không còn trong danh sách
+    order = [uid for uid in order if uid in id_to_name]
+    st.session_state[state_key] = order
+
+    st.markdown("#### Danh sách xếp hạng hiện tại")
+
+    action = None  # (index, offset)
+
+    for idx, uid in enumerate(order):
+        name = id_to_name.get(uid, f"ID {uid}")
+        col1, col2, col3 = st.columns([0.1, 0.6, 0.3])
+
+        with col1:
+            st.markdown(f"**{idx + 1}**")
+
+        with col2:
+            st.write(name)
+
+        with col3:
+            c1, c2, c3, c4 = st.columns(4)
+            # ⏫: lên 3 bậc
+            if c1.button("⏫", key=f"personal_up3_{owner_id}_{uid}"):
+                action = (idx, -3)
+            # ▲: lên 1 bậc
+            if c2.button("▲", key=f"personal_up1_{owner_id}_{uid}"):
+                action = (idx, -1)
+            # ▼: xuống 1 bậc
+            if c3.button("▼", key=f"personal_down1_{owner_id}_{uid}"):
+                action = (idx, +1)
+            # ⏬: xuống 3 bậc
+            if c4.button("⏬", key=f"personal_down3_{owner_id}_{uid}"):
+                action = (idx, +3)
+
+    if action is not None:
+        idx, offset = action
+        new_idx = max(0, min(len(order) - 1, idx + offset))
+        if new_idx != idx:
+            new_order = list(order)
+            item = new_order.pop(idx)
+            new_order.insert(new_idx, item)
+            st.session_state[state_key] = new_order
+        st.rerun()
+
+    st.markdown("---")
+    c_save, c_delete = st.columns([2, 1])
+
+    # Nút Lưu BXH cá nhân
+    with c_save:
+        if st.button(
+            "💾 Lưu BXH cá nhân",
+            type="primary",
+            use_container_width=True,
+            key="personal_save",
+        ):
+            current_order = st.session_state.get(state_key, [])
+            if not current_order:
+                st.warning("Danh sách hiện tại đang trống, không thể lưu.")
+            else:
+                save_personal_ranking(owner_id, current_order)
+                st.success("Đã lưu BXH cá nhân.")
+                st.session_state["personal_edit_mode"] = False
+                st.session_state.pop(state_key, None)
+                st.rerun()
+
+    # Nút Xoá BXH cá nhân
+    with c_delete:
+        if st.button(
+            "🗑 Xoá BXH cá nhân",
+            use_container_width=True,
+            key="personal_delete",
+        ):
+            delete_personal_ranking(owner_id)
+            st.session_state.pop(state_key, None)
+            st.success("Đã xoá toàn bộ BXH cá nhân.")
+            st.session_state["personal_edit_mode"] = False
             st.rerun()
 
 def ui_tournament_page():
@@ -1440,6 +1721,34 @@ def ui_tournament_groups(t_id):
 
     # Nút phân nhóm tự động
     if c_x.button("⚡ Phân nhóm tự động"):
+        # ====== KIỂM TRA CẤU HÌNH NHÓM (ĐỐI XỨNG + TỔNG) ======
+        total_players = len(players)
+        sizes = [size for _, size in g_defs]
+        total_cfg = sum(sizes)
+
+        # 1) Tổng số VĐV trong các nhóm phải đúng với tổng tham gia
+        if total_cfg != total_players:
+            st.error(
+                f"Tổng số VĐV trong cấu hình nhóm là {total_cfg}, "
+                f"nhưng tổng số thành viên tham gia là {total_players}. "
+                "Vui lòng điều chỉnh lại số lượng từng nhóm cho khớp."
+            )
+            return
+
+        # 2) Đối xứng: Nhóm 1 = Nhóm N, Nhóm 2 = Nhóm N-1, ...
+        n = len(sizes)
+        for i in range(n // 2):
+            left = sizes[i]
+            right = sizes[n - 1 - i]
+            if left != right:
+                st.error(
+                    f"Số lượng Nhóm {i+1} ({left}) phải bằng Nhóm {n - i} ({right}). "
+                    "Vui lòng điều chỉnh lại cho đối xứng."
+                )
+                return
+        # Trung tâm (n lẻ) không cần bằng ai, chỉ cần tổng đúng là được.
+
+        # ====== PHÂN NHÓM SAU KHI CẤU HÌNH HỢP LỆ ======
         player_ids = [p["user_id"] for p in players]
         order_ids = []
 
@@ -1491,7 +1800,8 @@ def ui_tournament_groups(t_id):
         cur = conn.cursor()
         for uid, gn in assigned.items():
             cur.execute(
-                "UPDATE tournament_players SET group_name = ? WHERE tournament_id = ? AND user_id = ?",
+                "UPDATE tournament_players SET group_name = ? "
+                "WHERE tournament_id = ? AND user_id = ?",
                 (gn, t_id, uid),
             )
         conn.commit()
@@ -1696,7 +2006,7 @@ def main():
         )
 
     # --- MENU CHÍNH ---
-    tabs_list = ["Trang chủ", "Bảng HNPR"]
+    tabs_list = ["Trang chủ", "Bảng xếp hạng"]
     if not user:
         tabs_list.append("Đăng nhập")
     else:
