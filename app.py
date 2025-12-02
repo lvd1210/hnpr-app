@@ -853,7 +853,7 @@ def ui_hnpr_page():
 
     # --- Cột trái: HNPR ---
     with col_left:
-        st.markdown("#### HNPR (bởi cộng đồng thành viên)")
+        st.markdown("#### BXH HNPR (bởi cộng đồng thành viên)")
 
         if not hnpr:
             st.info("Chưa có đủ dữ liệu để tính HNPR.")
@@ -876,7 +876,7 @@ def ui_hnpr_page():
 
     # --- Cột phải: BXH BTC ---
     with col_right:
-        st.markdown("#### BXH với Ban tổ chức")
+        st.markdown("#### BXH của Ban tổ chức")
 
         if not btc_rank:
             st.info("Chưa có BXH do Ban tổ chức thiết lập.")
