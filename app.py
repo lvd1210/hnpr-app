@@ -1109,47 +1109,144 @@ def ui_home():
         st.write("")
 
 def ui_profile_page():
-    require_login(); user = st.session_state["user"]
+    require_login()
+    user = st.session_state["user"]
+
     st.subheader(f"👤 Trang cá nhân: {user['full_name']}")
+
     tab_info, tab_rank = st.tabs(["Thông tin cá nhân", "Bảng xếp hạng cá nhân"])
+
+    # ===== TAB BẢNG XẾP HẠNG CÁ NHÂN =====
     with tab_rank:
-        owner_id = user["id"]; existing = get_personal_ranking(owner_id)
+        owner_id = user["id"]
         players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
-        if not players: st.info("Chưa có đủ thành viên."); return
-        if not existing:
-            st.info("Chưa có BXH cá nhân.")
-            if st.button("Tạo BXH tự động", type="primary"):
-                order_ids = get_hnpr_order_or_alpha(); order_ids = [uid for uid in order_ids if uid != owner_id]
-                save_personal_ranking(owner_id, order_ids); st.success("Đã tạo."); st.rerun()
-            return
-        if "personal_order" not in st.session_state: st.session_state["personal_order"] = [r["ranked_user_id"] for r in existing]
-        order = st.session_state["personal_order"]
-        for i, uid in enumerate(order):
-            player = next((p for p in players if p["id"] == uid), None)
-            if not player: continue
-            cols = st.columns([0.1, 0.6, 0.1, 0.1])
-            cols[0].write(f"#{i + 1}"); cols[1].write(player["full_name"])
-            if cols[2].button("⬆", key=f"up_{uid}_{i}") and i > 0: order[i-1], order[i] = order[i], order[i-1]; st.session_state["personal_order"] = order; st.rerun()
-            if cols[3].button("⬇", key=f"down_{uid}_{i}") and i < len(order)-1: order[i+1], order[i] = order[i], order[i+1]; st.session_state["personal_order"] = order; st.rerun()
-        st.markdown("---")
-        c1, c2 = st.columns(2)
-        if c1.button("💾 Lưu BXH", type="primary", use_container_width=True): save_personal_ranking(owner_id, order); st.success("Đã lưu.")
-        if c2.button("🗑️ Xoá BXH", use_container_width=True): delete_personal_ranking(owner_id); st.session_state.pop("personal_order", None); st.rerun()
+
+        if not players:
+            st.info("Chưa có đủ thành viên khác để xếp hạng.")
+        else:
+            existing = get_personal_ranking(owner_id)
+
+            if not existing:
+                st.info("Chưa có BXH cá nhân.")
+                if st.button(
+                    "Tạo BXH tự động",
+                    type="primary",
+                    key="profile_create_personal_ranking",
+                ):
+                    order_ids = get_hnpr_order_or_alpha()
+                    order_ids = [uid for uid in order_ids if uid != owner_id]
+                    save_personal_ranking(owner_id, order_ids)
+                    st.success("Đã tạo BXH cá nhân.")
+                    st.rerun()
+            else:
+                # Khởi tạo thứ tự trong session_state
+                if "personal_order" not in st.session_state:
+                    st.session_state["personal_order"] = [
+                        r["ranked_user_id"] for r in existing
+                    ]
+
+                order = st.session_state["personal_order"]
+
+                for i, uid in enumerate(order):
+                    player = next((p for p in players if p["id"] == uid), None)
+                    if not player:
+                        continue
+
+                    cols = st.columns([0.1, 0.6, 0.15, 0.15])
+                    cols[0].write(f"#{i + 1}")
+                    cols[1].write(player["full_name"])
+
+                    if cols[2].button("⬆", key=f"profile_up_{uid}_{i}") and i > 0:
+                        order[i - 1], order[i] = order[i], order[i - 1]
+                        st.session_state["personal_order"] = order
+                        st.rerun()
+
+                    if cols[3].button("⬇", key=f"profile_down_{uid}_{i}") and i < len(order) - 1:
+                        order[i + 1], order[i] = order[i], order[i + 1]
+                        st.session_state["personal_order"] = order
+                        st.rerun()
+
+                st.markdown("---")
+                c1, c2 = st.columns(2)
+                if c1.button(
+                    "💾 Lưu BXH",
+                    type="primary",
+                    use_container_width=True,
+                    key="profile_save_personal_ranking",
+                ):
+                    save_personal_ranking(owner_id, order)
+                    st.success("Đã lưu BXH cá nhân.")
+
+                if c2.button(
+                    "🗑️ Xoá BXH",
+                    use_container_width=True,
+                    key="profile_delete_personal_ranking",
+                ):
+                    delete_personal_ranking(owner_id)
+                    st.session_state.pop("personal_order", None)
+                    st.rerun()
+
+    # ===== TAB THÔNG TIN CÁ NHÂN =====
     with tab_info:
         col_form, _ = st.columns([1, 1])
         with col_form:
-            full_name = st.text_input("Họ tên", value=user["full_name"])
-            age = st.number_input("Tuổi", min_value=5, max_value=100, value=user.get("age") or 30, step=1)
-            new_password = st.text_input("Đổi mật khẩu", type="password")
-            if st.button("💾 Lưu thông tin", type="primary"):
-                conn = get_conn(); cur = conn.cursor()
-                if new_password: cur.execute("UPDATE users SET full_name = ?, age = ?, password_hash = ? WHERE id = ?", (full_name, age, hash_password(new_password), user["id"]))
-                else: cur.execute("UPDATE users SET full_name = ?, age = ? WHERE id = ?", (full_name, age, user["id"]))
-                conn.commit(); conn.close(); st.session_state["user"] = dict(get_user_by_id(user["id"])); st.success("Đã cập nhật.")
+            full_name = st.text_input(
+                "Họ tên",
+                value=user["full_name"],
+                key="profile_full_name",
+            )
+            age = st.number_input(
+                "Tuổi",
+                min_value=5,
+                max_value=100,
+                value=user.get("age") or 30,
+                step=1,
+                key="profile_age",
+            )
+            new_password = st.text_input(
+                "Đổi mật khẩu",
+                type="password",
+                key="profile_new_password",
+            )
+
+            if st.button(
+                "💾 Lưu thông tin",
+                type="primary",
+                key="profile_save_info",
+            ):
+                conn = get_conn()
+                cur = conn.cursor()
+                if new_password:
+                    cur.execute(
+                        """
+                        UPDATE users
+                        SET full_name = ?, age = ?, password_hash = ?
+                        WHERE id = ?
+                        """,
+                        (full_name, age, hash_password(new_password), user["id"]),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        UPDATE users
+                        SET full_name = ?, age = ?
+                        WHERE id = ?
+                        """,
+                        (full_name, age, user["id"]),
+                    )
+                conn.commit()
+                conn.close()
+
+                # cập nhật lại session
+                st.session_state["user"] = dict(get_user_by_id(user["id"]))
+                st.success("Đã cập nhật thông tin.")
+
         st.markdown("---")
-        if st.button("🚪 Đăng xuất"):
+        if st.button("🚪 Đăng xuất", key="profile_logout"):
             delete_session_token(st.session_state.get("login_token"))
-            st.session_state["user"] = None; st.session_state["login_token"] = None; st.rerun()
+            st.session_state["user"] = None
+            st.session_state["login_token"] = None
+            st.rerun()
 
 def ui_tournament_page():
     require_role(["admin", "btc"])
