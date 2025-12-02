@@ -2,8 +2,175 @@ import streamlit as st
 import sqlite3
 import hashlib
 from datetime import datetime
+import random
+import secrets
+
+# ==========================================
+# 1. PAGE CONFIG & CSS STYLING (HIERARCHY UI)
+# ==========================================
+st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide", page_icon="🏓")
 
 DB_PATH = "hnx_pickball_allstars.db"
+
+st.markdown("""
+<style>
+    /* --- Global Font & Colors --- */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"]  {
+        font-family: 'Inter', sans-serif;
+        color: #1f2937;
+    }
+
+    :root {
+        --primary-color: #2563EB;
+        --bg-light: #F3F4F6;
+        --text-gray: #6B7280;
+    }
+
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* ========================================================= */
+    /* 🎯 MENU CHÍNH (NAVIGATION BAR) - STYLE "PILLS" */
+    /* ========================================================= */
+    /* Chúng ta bọc Menu chính trong một div class 'main-menu-tabs' ở hàm main() */
+    
+    .main-menu-tabs div[data-baseweb="tab-list"] {
+        background-color: #f0f2f6 !important; /* Nền xám cho cả thanh menu */
+        padding: 4px 4px 0px 4px !important;
+        border-radius: 8px 8px 0 0;
+        gap: 8px;
+    }
+
+    /* Các nút trong menu chính */
+    .main-menu-tabs div[data-baseweb="tab"] {
+        background-color: transparent !important;
+        border: none !important;
+        color: #444 !important;
+        font-weight: 600 !important;
+        padding: 10px 20px !important;
+        margin-bottom: 4px !important;
+        border-radius: 6px !important;
+        transition: 0.2s;
+    }
+
+    /* Khi hover vào menu chính */
+    .main-menu-tabs div[data-baseweb="tab"]:hover {
+        background-color: #e5e7eb !important;
+    }
+
+    /* Mục đang được chọn ở menu chính */
+    .main-menu-tabs button[aria-selected="true"] {
+        background-color: #ffffff !important; /* Nền trắng nổi bật */
+        color: var(--primary-color) !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08) !important;
+    }
+
+
+    /* ========================================================= */
+    /* 📂 TAB CON (SUB-TABS) - STYLE "CLEAN UNDERLINE" */
+    /* ========================================================= */
+    /* Áp dụng cho các tab KHÔNG nằm trong .main-menu-tabs */
+    
+    div[data-baseweb="tab-list"] {
+        gap: 24px;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 0px;
+    }
+    
+    /* Reset style mặc định để tránh xung đột */
+    div[data-baseweb="tab"] {
+        background-color: transparent;
+        border: none;
+        color: #6B7280;
+        font-weight: 500;
+        font-size: 15px;
+        padding-bottom: 10px;
+    }
+    
+    /* Style chọn cho Tab con: Chỉ gạch chân, không đổi nền */
+    button[aria-selected="true"] {
+        color: var(--primary-color) !important;
+        border-bottom: 2px solid var(--primary-color) !important;
+        font-weight: 700 !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+    }
+
+    /* ========================================================= */
+    /* 🃏 CARD & INFO GRID STYLE */
+    /* ========================================================= */
+    .tournament-card {
+        background-color: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    .t-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 12px;
+    }
+
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 15px;
+        background-color: #F9FAFB;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #f3f4f6;
+    }
+    .info-item { display: flex; flex-direction: column; }
+    .info-label {
+        font-size: 0.75rem; 
+        color: #6B7280; 
+        text-transform: uppercase; 
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .info-value {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1F2937;
+    }
+
+    /* --- Buttons --- */
+    .stButton > button {
+        border-radius: 6px;
+        font-weight: 500;
+        border: 1px solid #d1d5db;
+    }
+    .stButton > button:hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- Init Session State ---
+if "user" not in st.session_state:
+    st.session_state["user"] = None
+if "login_token" not in st.session_state:
+    st.session_state["login_token"] = None
+if "tournament_view_mode" not in st.session_state:
+    st.session_state["tournament_view_mode"] = "list"
+if "selected_tournament_id" not in st.session_state:
+    st.session_state["selected_tournament_id"] = None
+if "editing_tournament_id" not in st.session_state:
+    st.session_state["editing_tournament_id"] = None
+if "show_create_t" not in st.session_state:
+    st.session_state["show_create_t"] = False
 
 # ------------------ DB helpers ------------------ #
 
@@ -16,104 +183,44 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-        # Users
+    # Tables creation (kept same as logic)
+    cur.execute("""CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT NOT NULL)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, full_name TEXT NOT NULL, age INTEGER, role TEXT NOT NULL DEFAULT 'player', is_approved INTEGER NOT NULL DEFAULT 0, is_btc INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS tournaments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, start_date TEXT, end_date TEXT, location TEXT, num_courts INTEGER, is_active INTEGER NOT NULL DEFAULT 0)""")
+    
+    cur.execute("PRAGMA table_info(tournaments)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "competition_type" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN competition_type TEXT")
+    if "use_pools" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN use_pools INTEGER NOT NULL DEFAULT 1")
+    if "adv_per_pool" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN adv_per_pool INTEGER")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS tournament_players (tournament_id INTEGER NOT NULL, user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'approved', group_name TEXT, PRIMARY KEY (tournament_id, user_id))""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS personal_ranking_items (owner_id INTEGER NOT NULL, ranked_user_id INTEGER NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (owner_id, ranked_user_id))""")
+    # BXH chính thức do Ban tổ chức thiết lập
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            full_name TEXT NOT NULL,
-            age INTEGER,
-            role TEXT NOT NULL DEFAULT 'player', -- vẫn giữ để tương thích
-            is_approved INTEGER NOT NULL DEFAULT 0,
-            is_btc INTEGER NOT NULL DEFAULT 0,
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS btc_ranking_items (
+            ranked_user_id INTEGER PRIMARY KEY,
+            position      INTEGER NOT NULL
         )
     """)
+    
+    cur.execute("""CREATE TABLE IF NOT EXISTS competitors (id INTEGER PRIMARY KEY AUTOINCREMENT, tournament_id INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, pool_name TEXT)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS competitor_members (competitor_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (competitor_id, user_id))""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY AUTOINCREMENT, tournament_id INTEGER NOT NULL, competitor1_id INTEGER NOT NULL, competitor2_id INTEGER NOT NULL, score1 INTEGER NOT NULL, score2 INTEGER NOT NULL, winner_id INTEGER NOT NULL, reported_by INTEGER, confirmed_by INTEGER)""")
 
-
-    # Tournaments
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tournaments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            start_date TEXT,
-            end_date TEXT,
-            location TEXT,
-            num_courts INTEGER,
-            is_active INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-
-    # Tournament players
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tournament_players (
-            tournament_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'approved', -- approved / pending
-            group_name TEXT,
-            PRIMARY KEY (tournament_id, user_id)
-        )
-    """)
-
-    # Personal rankings (each owner ranks others)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS personal_ranking_items (
-            owner_id INTEGER NOT NULL,
-            ranked_user_id INTEGER NOT NULL,
-            position INTEGER NOT NULL,
-            PRIMARY KEY (owner_id, ranked_user_id)
-        )
-    """)
-
-    # Competitors (pair or team)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS competitors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tournament_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL, -- pair / team
-            pool_name TEXT
-        )
-    """)
-
-    # Members of a competitor
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS competitor_members (
-            competitor_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            PRIMARY KEY (competitor_id, user_id)
-        )
-    """)
-
-    # Matches
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tournament_id INTEGER NOT NULL,
-            competitor1_id INTEGER NOT NULL,
-            competitor2_id INTEGER NOT NULL,
-            score1 INTEGER NOT NULL,
-            score2 INTEGER NOT NULL,
-            winner_id INTEGER NOT NULL,
-            reported_by INTEGER,
-            confirmed_by INTEGER
-        )
-    """)
+    cur.execute("PRAGMA table_info(matches)")
+    mcols = [r[1] for r in cur.fetchall()]
+    if "team1_p1_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team1_p1_id INTEGER")
+    if "team1_p2_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team1_p2_id INTEGER")
+    if "team2_p1_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team2_p1_id INTEGER")
+    if "team2_p2_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team2_p2_id INTEGER")
 
     conn.commit()
-
-    # Create default admin if not exists
     cur.execute("SELECT COUNT(*) AS c FROM users")
     if cur.fetchone()["c"] == 0:
         password_hash = hash_password("admin")
-        cur.execute("""
-            INSERT INTO users (username, password_hash, full_name, age, role, is_approved, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("admin", password_hash, "Administrator", 0, "admin", 1, datetime.utcnow().isoformat()))
+        cur.execute("INSERT INTO users (username, password_hash, full_name, age, role, is_approved, is_btc, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", ("admin", password_hash, "Administrator", 0, "admin", 1, 1, 1, datetime.utcnow().isoformat()))
         conn.commit()
-
     conn.close()
 
 # ------------------ Auth helpers ------------------ #
@@ -142,55 +249,66 @@ def get_user_by_id(user_id: int):
 
 def login(username, password):
     user = get_user_by_username(username)
-    if not user:
-        return None, "Không tìm thấy tài khoản"
-    if not verify_password(password, user["password_hash"]):
-        return None, "Sai mật khẩu"
-    if not user["is_approved"]:
-        return None, "Tài khoản chưa được phê duyệt bởi Admin/BTC"
+    if not user: return None, "Không tìm thấy tài khoản"
+    if not verify_password(password, user["password_hash"]): return None, "Sai mật khẩu"
+    if not user["is_approved"]: return None, "Tài khoản chưa được phê duyệt"
     return user, None
+
+# ------------------ Session helpers ------------------ #
+
+def create_session_token(user_id: int) -> str:
+    token = secrets.token_hex(16)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)", (token, user_id, datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+    return token
+
+def get_user_by_session_token(token: str):
+    if not token: return None
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?", (token,))
+        row = cur.fetchone()
+    except sqlite3.OperationalError: row = None
+    conn.close()
+    return row
+
+def delete_session_token(token: str):
+    if not token: return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
 
 def require_login():
     if "user" not in st.session_state or st.session_state["user"] is None:
-        st.warning("Bạn cần đăng nhập để sử dụng chức năng này.")
+        st.warning("⚠️ Bạn cần đăng nhập để sử dụng chức năng này.")
         st.stop()
 
 def require_role(roles):
-    """
-    roles: ví dụ ["admin", "btc"]
-    Quy ước:
-    - admin: cần is_admin = 1
-    - btc: cần is_btc = 1 hoặc is_admin = 1
-    - player: chỉ cần đăng nhập
-    """
     require_login()
     u = st.session_state["user"]
-
     is_admin = bool(u.get("is_admin", 0))
     is_btc = bool(u.get("is_btc", 0))
-
     ok = False
-
-    if "admin" in roles and is_admin:
-        ok = True
-    if "btc" in roles and (is_btc or is_admin):
-        ok = True
-    if "player" in roles:
-        ok = True
-
+    if "admin" in roles and is_admin: ok = True
+    if "btc" in roles and (is_btc or is_admin): ok = True
+    if "player" in roles: ok = True
     if not ok:
-        st.warning("Bạn không có quyền truy cập chức năng này.")
+        st.error("⛔ Bạn không có quyền truy cập.")
         st.stop()
 
-# ------------------ HNPR logic ------------------ #
+# ------------------ Logic & Data Access ------------------ #
 
 def get_all_players(only_approved=True):
     conn = get_conn()
     cur = conn.cursor()
-    if only_approved:
-        cur.execute("SELECT * FROM users WHERE role = 'player' AND is_approved = 1 ORDER BY full_name")
-    else:
-        cur.execute("SELECT * FROM users ORDER BY full_name")
+    if only_approved: cur.execute("SELECT * FROM users WHERE role = 'player' AND is_approved = 1 ORDER BY full_name")
+    else: cur.execute("SELECT * FROM users ORDER BY full_name")
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -198,13 +316,7 @@ def get_all_players(only_approved=True):
 def get_personal_ranking(owner_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT pri.ranked_user_id, pri.position, u.full_name
-        FROM personal_ranking_items pri
-        JOIN users u ON u.id = pri.ranked_user_id
-        WHERE pri.owner_id = ?
-        ORDER BY pri.position ASC
-    """, (owner_id,))
+    cur.execute("SELECT pri.ranked_user_id, pri.position, u.full_name FROM personal_ranking_items pri JOIN users u ON u.id = pri.ranked_user_id WHERE pri.owner_id = ? ORDER BY pri.position ASC", (owner_id,))
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -212,14 +324,9 @@ def get_personal_ranking(owner_id):
 def save_personal_ranking(owner_id, ordered_ids):
     conn = get_conn()
     cur = conn.cursor()
-    # clear old
     cur.execute("DELETE FROM personal_ranking_items WHERE owner_id = ?", (owner_id,))
-    # insert new
     for pos, uid in enumerate(ordered_ids, start=1):
-        cur.execute("""
-            INSERT INTO personal_ranking_items (owner_id, ranked_user_id, position)
-            VALUES (?, ?, ?)
-        """, (owner_id, uid, pos))
+        cur.execute("INSERT INTO personal_ranking_items (owner_id, ranked_user_id, position) VALUES (?, ?, ?)", (owner_id, uid, pos))
     conn.commit()
     conn.close()
 
@@ -231,52 +338,97 @@ def delete_personal_ranking(owner_id):
     conn.close()
 
 def compute_hnpr():
-    """
-    Tính HNPR dựa trên trung bình vị trí của từng VĐV trong các bảng xếp hạng cá nhân.
-    Vị trí trung bình càng nhỏ thì xếp hạng càng cao.
-    """
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT ranked_user_id,
-               AVG(position) AS avg_pos,
-               COUNT(DISTINCT owner_id) AS vote_count
-        FROM personal_ranking_items
-        GROUP BY ranked_user_id
-        HAVING vote_count > 0
-        ORDER BY avg_pos ASC
-    """)
+    cur.execute("SELECT ranked_user_id, AVG(position) AS avg_pos, COUNT(DISTINCT owner_id) AS vote_count FROM personal_ranking_items GROUP BY ranked_user_id HAVING vote_count > 0 ORDER BY avg_pos ASC")
     rows = cur.fetchall()
     result = []
     rank = 1
     for r in rows:
         user = get_user_by_id(r["ranked_user_id"])
-        if not user:
-            continue
-        result.append({
-            "rank": rank,
-            "user_id": r["ranked_user_id"],
-            "full_name": user["full_name"],
-            "avg_pos": r["avg_pos"],
-            "vote_count": r["vote_count"],
-        })
+        if not user: continue
+        result.append({"rank": rank, "user_id": r["ranked_user_id"], "full_name": user["full_name"], "avg_pos": r["avg_pos"], "vote_count": r["vote_count"]})
         rank += 1
     conn.close()
     return result
 
 def get_hnpr_order_or_alpha():
     ranking = compute_hnpr()
-    if ranking:
-        return [r["user_id"] for r in ranking]
-    else:
-        return [p["id"] for p in get_all_players(only_approved=True)]
+    if ranking: return [r["user_id"] for r in ranking]
+    else: return [p["id"] for p in get_all_players(only_approved=True)]
 
-# ------------------ Tournament helpers ------------------ #
+def get_btc_ranking():
+    """
+    Lấy BXH do Ban tổ chức thiết lập:
+    trả về danh sách (ranked_user_id, position, full_name) sắp xếp theo position.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT b.ranked_user_id, b.position, u.full_name
+        FROM btc_ranking_items b
+        JOIN users u ON u.id = b.ranked_user_id
+        ORDER BY b.position ASC
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def save_btc_ranking(ordered_ids):
+    """
+    Ghi lại BXH BTC theo thứ tự trong ordered_ids (1 là cao nhất).
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM btc_ranking_items")
+    for pos, uid in enumerate(ordered_ids, start=1):
+        cur.execute("""
+            INSERT INTO btc_ranking_items (ranked_user_id, position)
+            VALUES (?, ?)
+        """, (uid, pos))
+    conn.commit()
+    conn.close()
+
+def delete_btc_ranking():
+    """
+    Xoá toàn bộ BXH BTC.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM btc_ranking_items")
+    conn.commit()
+    conn.close()
+
+def build_competitor_display_name(comp_id, members_map):
+    members = members_map.get(comp_id, [])
+    member_names = [m[1] for m in members]
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT name, kind FROM competitors WHERE id = ?", (comp_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row: return " + ".join(member_names) if member_names else str(comp_id)
+    base_name = row["name"]
+    kind = row["kind"]
+    if kind == "team":
+        if member_names: return f"{base_name} ({', '.join(member_names)})"
+        return base_name
+    else:
+        if member_names: return " + ".join(member_names)
+        return base_name
 
 def get_tournaments():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM tournaments ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_active_tournaments():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tournaments WHERE is_active = 1 ORDER BY start_date")
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -289,24 +441,20 @@ def get_tournament_by_id(t_id: int):
     conn.close()
     return row
 
-def upsert_tournament(t_id, name, start_date, end_date, location, num_courts, is_active):
+def upsert_tournament(t_id, name, start_date, end_date, location, num_courts, is_active, competition_type="pair", use_pools=True, adv_per_pool=None):
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute("PRAGMA table_info(tournaments)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "competition_type" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN competition_type TEXT")
+    if "use_pools" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN use_pools INTEGER NOT NULL DEFAULT 1")
+    if "adv_per_pool" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN adv_per_pool INTEGER")
+
     if t_id is None:
-        cur.execute("""
-            INSERT INTO tournaments (name, start_date, end_date, location, num_courts, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (name, start_date, end_date, location, num_courts, 1 if is_active else 0))
+        cur.execute("INSERT INTO tournaments (name, start_date, end_date, location, num_courts, is_active, competition_type, use_pools, adv_per_pool) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (name, start_date, end_date, location, num_courts, 1 if is_active else 0, competition_type, 1 if use_pools else 0, adv_per_pool))
         t_id = cur.lastrowid
     else:
-        cur.execute("""
-            UPDATE tournaments
-            SET name = ?, start_date = ?, end_date = ?, location = ?, num_courts = ?, is_active = ?
-            WHERE id = ?
-        """, (name, start_date, end_date, location, num_courts, 1 if is_active else 0, t_id))
-    # only one active at a time
-    if is_active:
-        cur.execute("UPDATE tournaments SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", (t_id,))
+        cur.execute("UPDATE tournaments SET name = ?, start_date = ?, end_date = ?, location = ?, num_courts = ?, is_active = ?, competition_type = ?, use_pools = ?, adv_per_pool = ? WHERE id = ?", (name, start_date, end_date, location, num_courts, 1 if is_active else 0, competition_type, 1 if use_pools else 0, adv_per_pool, t_id))
     conn.commit()
     conn.close()
     return t_id
@@ -315,6 +463,7 @@ def delete_tournament(t_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM tournament_players WHERE tournament_id = ?", (t_id,))
+    cur.execute("DELETE FROM competitor_members WHERE competitor_id IN (SELECT id FROM competitors WHERE tournament_id = ?)", (t_id,))
     cur.execute("DELETE FROM competitors WHERE tournament_id = ?", (t_id,))
     cur.execute("DELETE FROM matches WHERE tournament_id = ?", (t_id,))
     cur.execute("DELETE FROM tournaments WHERE id = ?", (t_id,))
@@ -324,13 +473,7 @@ def delete_tournament(t_id):
 def get_tournament_players(tournament_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT tp.tournament_id, tp.user_id, tp.status, tp.group_name, u.full_name
-        FROM tournament_players tp
-        JOIN users u ON u.id = tp.user_id
-        WHERE tp.tournament_id = ?
-        ORDER BY u.full_name
-    """, (tournament_id,))
+    cur.execute("SELECT tp.tournament_id, tp.user_id, tp.status, tp.group_name, u.full_name FROM tournament_players tp JOIN users u ON u.id = tp.user_id WHERE tp.tournament_id = ? ORDER BY u.full_name", (tournament_id,))
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -340,20 +483,9 @@ def set_tournament_players(tournament_id, user_ids):
     cur = conn.cursor()
     cur.execute("DELETE FROM tournament_players WHERE tournament_id = ?", (tournament_id,))
     for uid in user_ids:
-        cur.execute("""
-            INSERT INTO tournament_players (tournament_id, user_id, status)
-            VALUES (?, ?, 'approved')
-        """, (tournament_id, uid))
+        cur.execute("INSERT INTO tournament_players (tournament_id, user_id, status) VALUES (?, ?, 'approved')", (tournament_id, uid))
     conn.commit()
     conn.close()
-
-def get_tournament_active():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tournaments WHERE is_active = 1 LIMIT 1")
-    row = cur.fetchone()
-    conn.close()
-    return row
 
 def get_competitors(tournament_id):
     conn = get_conn()
@@ -368,38 +500,29 @@ def clear_competitors_and_matches(tournament_id):
     cur = conn.cursor()
     cur.execute("SELECT id FROM competitors WHERE tournament_id = ?", (tournament_id,))
     comp_ids = [r["id"] for r in cur.fetchall()]
-    if comp_ids:
-        cur.executemany("DELETE FROM competitor_members WHERE competitor_id = ?", [(cid,) for cid in comp_ids])
+    if comp_ids: cur.executemany("DELETE FROM competitor_members WHERE competitor_id = ?", [(cid,) for cid in comp_ids])
     cur.execute("DELETE FROM matches WHERE tournament_id = ?", (tournament_id,))
     cur.execute("DELETE FROM competitors WHERE tournament_id = ?", (tournament_id,))
     conn.commit()
     conn.close()
 
-def create_competitor(conn, tournament_id, name, kind, member_ids):
+def create_competitor(conn, tournament_id, member_ids):
     cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO competitors (tournament_id, name, kind)
-        VALUES (?, ?, ?)
-    """, (tournament_id, name, kind))
+    placeholders = ",".join("?" * len(member_ids))
+    cur.execute(f"SELECT full_name FROM users WHERE id IN ({placeholders}) ORDER BY full_name", member_ids)
+    names = [r[0] for r in cur.fetchall()]
+    display_name = " + ".join(names)
+    kind = "pair" if len(member_ids) == 2 else "team"
+    cur.execute("INSERT INTO competitors (tournament_id, name, kind) VALUES (?, ?, ?)", (tournament_id, display_name, kind))
     comp_id = cur.lastrowid
     for uid in member_ids:
-        cur.execute("""
-            INSERT INTO competitor_members (competitor_id, user_id)
-            VALUES (?, ?)
-        """, (comp_id, uid))
+        cur.execute("INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)", (comp_id, uid))
     return comp_id
 
 def get_competitor_members_map(tournament_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT c.id AS competitor_id, u.id AS user_id, u.full_name
-        FROM competitors c
-        JOIN competitor_members cm ON cm.competitor_id = c.id
-        JOIN users u ON u.id = cm.user_id
-        WHERE c.tournament_id = ?
-        ORDER BY c.id, u.full_name
-    """, (tournament_id,))
+    cur.execute("SELECT c.id AS competitor_id, u.id AS user_id, u.full_name FROM competitors c JOIN competitor_members cm ON cm.competitor_id = c.id JOIN users u ON u.id = cm.user_id WHERE c.tournament_id = ? ORDER BY c.id, u.full_name", (tournament_id,))
     rows = cur.fetchall()
     conn.close()
     comp_members = {}
@@ -410,127 +533,195 @@ def get_competitor_members_map(tournament_id):
 def get_matches(tournament_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT m.*, c1.name AS name1, c2.name AS name2
-        FROM matches m
-        JOIN competitors c1 ON c1.id = m.competitor1_id
-        JOIN competitors c2 ON c2.id = m.competitor2_id
-        WHERE m.tournament_id = ?
-        ORDER BY m.id
-    """, (tournament_id,))
+    cur.execute("SELECT m.*, c1.name AS name1, c2.name AS name2 FROM matches m JOIN competitors c1 ON c1.id = m.competitor1_id JOIN competitors c2 ON c2.id = m.competitor2_id WHERE m.tournament_id = ? ORDER BY m.id", (tournament_id,))
     rows = cur.fetchall()
     conn.close()
     return rows
 
-def add_match(tournament_id, comp1_id, comp2_id, score1, score2, reporter_id, auto_confirm=True):
+def add_match(tournament_id, comp1_id, comp2_id, score1, score2, reporter_id, auto_confirm=True, team_players=None):
     if score1 == score2:
-        st.warning("Hiện tại hệ thống chưa hỗ trợ hoà, vui lòng nhập tỉ số có đội thắng.")
+        st.warning("Hệ thống chưa hỗ trợ hoà.")
         return
     winner_id = comp1_id if score1 > score2 else comp2_id
+    t1_p1, t1_p2, t2_p1, t2_p2 = team_players if team_players else (None, None, None, None)
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO matches (tournament_id, competitor1_id, competitor2_id, score1, score2, winner_id, reported_by, confirmed_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (tournament_id, comp1_id, comp2_id, score1, score2, winner_id, reporter_id, reporter_id if auto_confirm else None))
+    cur.execute("INSERT INTO matches (tournament_id, competitor1_id, competitor2_id, score1, score2, winner_id, reported_by, confirmed_by, team1_p1_id, team1_p2_id, team2_p1_id, team2_p2_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (tournament_id, comp1_id, comp2_id, score1, score2, winner_id, reporter_id, reporter_id if auto_confirm else None, t1_p1, t1_p2, t2_p1, t2_p2))
     conn.commit()
     conn.close()
 
 def compute_standings(tournament_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT c.id, c.name
-        FROM competitors c
-        WHERE c.tournament_id = ?
-    """, (tournament_id,))
+    cur.execute("SELECT c.id, c.name FROM competitors c WHERE c.tournament_id = ?", (tournament_id,))
     competitors = {r["id"]: {"name": r["name"], "wins": 0, "pts_for": 0, "pts_against": 0} for r in cur.fetchall()}
-
-    cur.execute("""
-        SELECT * FROM matches
-        WHERE tournament_id = ? AND (confirmed_by IS NOT NULL)
-    """, (tournament_id,))
+    cur.execute("SELECT * FROM matches WHERE tournament_id = ? AND confirmed_by IS NOT NULL", (tournament_id,))
     for m in cur.fetchall():
-        c1 = m["competitor1_id"]
-        c2 = m["competitor2_id"]
-        s1 = m["score1"]
-        s2 = m["score2"]
-        competitors[c1]["pts_for"] += s1
-        competitors[c1]["pts_against"] += s2
-        competitors[c2]["pts_for"] += s2
-        competitors[c2]["pts_against"] += s1
-        if m["winner_id"] == c1:
-            competitors[c1]["wins"] += 1
-        elif m["winner_id"] == c2:
-            competitors[c2]["wins"] += 1
-
+        c1 = m["competitor1_id"]; c2 = m["competitor2_id"]; s1 = m["score1"]; s2 = m["score2"]
+        competitors[c1]["pts_for"] += s1; competitors[c1]["pts_against"] += s2
+        competitors[c2]["pts_for"] += s2; competitors[c2]["pts_against"] += s1
+        if m["winner_id"] == c1: competitors[c1]["wins"] += 1
+        elif m["winner_id"] == c2: competitors[c2]["wins"] += 1
     conn.close()
-
     table = []
     for cid, info in competitors.items():
-        diff = info["pts_for"] - info["pts_against"]
-        table.append({
-            "id": cid,
-            "name": info["name"],
-            "wins": info["wins"],
-            "pts_for": info["pts_for"],
-            "pts_against": info["pts_against"],
-            "diff": diff,
-        })
-
+        table.append({"id": cid, "name": info["name"], "wins": info["wins"], "pts_for": info["pts_for"], "pts_against": info["pts_against"], "diff": info["pts_for"] - info["pts_against"]})
     table.sort(key=lambda x: (-x["wins"], -x["diff"], x["name"]))
     return table
+
+def compute_pool_standings(tournament_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, pool_name FROM competitors WHERE tournament_id = ? AND pool_name IS NOT NULL", (tournament_id,))
+    comps = cur.fetchall()
+    if not comps: conn.close(); return {}
+    pool_map = {}
+    for c in comps:
+        pool = c["pool_name"]
+        pool_map.setdefault(pool, {})
+        pool_map[pool][c["id"]] = {"id": c["id"], "name": c["name"], "wins": 0, "pts_for": 0, "pts_against": 0, "diff": 0}
+    cur.execute("SELECT * FROM matches WHERE tournament_id = ? AND confirmed_by IS NOT NULL", (tournament_id,))
+    matches = cur.fetchall()
+    for m in matches:
+        c1 = m["competitor1_id"]; c2 = m["competitor2_id"]; s1 = m["score1"]; s2 = m["score2"]
+        for pool, comp_dict in pool_map.items():
+            if c1 in comp_dict and c2 in comp_dict:
+                comp_dict[c1]["pts_for"] += s1; comp_dict[c1]["pts_against"] += s2
+                comp_dict[c2]["pts_for"] += s2; comp_dict[c2]["pts_against"] += s1
+                if m["winner_id"] == c1: comp_dict[c1]["wins"] += 1
+                elif m["winner_id"] == c2: comp_dict[c2]["wins"] += 1
+                break
+    conn.close()
+    result = {}
+    for pool, comp_dict in pool_map.items():
+        lst = []
+        for cid, info in comp_dict.items():
+            info["diff"] = info["pts_for"] - info["pts_against"]
+            lst.append(info)
+        lst.sort(key=lambda x: (-x["wins"], -x["diff"], x["name"]))
+        result[pool] = lst
+    return result
 
 # ------------------ UI sections ------------------ #
 
 def ui_login_register():
-    st.subheader("Đăng nhập / Đăng ký")
-
-    tab_login, tab_register = st.tabs(["Đăng nhập", "Đăng ký"])
-
-    with tab_login:
-        username = st.text_input("Tên đăng nhập")
-        password = st.text_input("Mật khẩu", type="password")
-        if st.button("Đăng nhập"):
-            user, err = login(username, password)
-            if err:
-                st.error(err)
-            else:
-                st.session_state["user"] = dict(user)
-                st.success(f"Xin chào {user['full_name']}!")
-                st.rerun()
-
-
-    with tab_register:
-        full_name = st.text_input("Họ tên")
-        age = st.number_input("Tuổi", min_value=5, max_value=100, value=30, step=1)
-        username_r = st.text_input("Tên đăng nhập mới")
-        password_r = st.text_input("Mật khẩu mới", type="password")
-        if st.button("Đăng ký tài khoản mới"):
-            if not (full_name and username_r and password_r):
-                st.warning("Vui lòng nhập đầy đủ thông tin.")
-            else:
-                conn = get_conn()
-                cur = conn.cursor()
-                try:
-                    cur.execute("""
-                        INSERT INTO users (username, password_hash, full_name, age, role, is_approved, created_at)
-                        VALUES (?, ?, ?, ?, 'player', 0, ?)
-                    """, (username_r, hash_password(password_r), full_name, age, datetime.utcnow().isoformat()))
-                    conn.commit()
-                    st.success("Đăng ký thành công, vui lòng chờ Admin/BTC phê duyệt.")
-                except sqlite3.IntegrityError:
-                    st.error("Tên đăng nhập đã tồn tại.")
-                finally:
-                    conn.close()
+    st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>Đăng nhập / Đăng ký</h3>", unsafe_allow_html=True)
+    col_center = st.columns([1, 2, 1])[1]
+    with col_center:
+        tab_login, tab_register = st.tabs(["Đăng nhập", "Đăng ký"])
+        with tab_login:
+            st.write(" ")
+            username = st.text_input("Tên đăng nhập")
+            password = st.text_input("Mật khẩu", type="password")
+            if st.button("Đăng nhập", type="primary", use_container_width=True):
+                user, err = login(username, password)
+                if err: st.error(err)
+                else:
+                    token = create_session_token(user["id"])
+                    st.session_state["user"] = dict(user)
+                    st.session_state["login_token"] = token
+                    st.query_params = {"t": token}
+                    st.success(f"Xin chào {user['full_name']}!")
+                    st.rerun()
+        with tab_register:
+            st.write(" ")
+            full_name = st.text_input("Họ tên")
+            age = st.number_input("Tuổi", min_value=5, max_value=100, value=30, step=1)
+            username_r = st.text_input("Tên đăng nhập mới")
+            password_r = st.text_input("Mật khẩu mới", type="password")
+            if st.button("Đăng ký tài khoản mới", use_container_width=True):
+                if not (full_name and username_r and password_r): st.warning("Nhập đủ thông tin")
+                else:
+                    conn = get_conn(); cur = conn.cursor()
+                    try:
+                        cur.execute("INSERT INTO users (username, password_hash, full_name, age, role, is_approved, created_at) VALUES (?, ?, ?, ?, 'player', 0, ?)", (username_r, hash_password(password_r), full_name, age, datetime.utcnow().isoformat()))
+                        conn.commit(); st.success("Đăng ký thành công, chờ duyệt.")
+                    except sqlite3.IntegrityError: st.error("Username đã tồn tại.")
+                    finally: conn.close()
 
 def ui_member_management():
     require_role(["admin", "btc"])
-    st.subheader("Quản lý thành viên")
+    st.subheader("👥 Quản lý thành viên")
 
+    # =========================
+    # 1. FORM THÊM THÀNH VIÊN MỚI
+    # =========================
+    with st.expander("➕ Thêm thành viên mới", expanded=True):
+        with st.form("add_member_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                full_name_new = st.text_input("Họ tên", key="add_full_name")
+                age_new = st.number_input(
+                    "Tuổi",
+                    min_value=5,
+                    max_value=100,
+                    value=30,
+                    step=1,
+                    key="add_age",
+                )
+            with col2:
+                username_new = st.text_input("Username đăng nhập", key="add_username")
+                password_new = st.text_input(
+                    "Mật khẩu", type="password", key="add_password"
+                )
+
+            col_role1, col_role2, col_role3 = st.columns(3)
+            with col_role1:
+                is_btc_new = st.checkbox("Thuộc Ban tổ chức", key="add_is_btc")
+            with col_role2:
+                is_admin_new = st.checkbox("Admin", key="add_is_admin")
+            with col_role3:
+                auto_approve_new = st.checkbox(
+                    "Duyệt luôn", value=True, key="add_approve"
+                )
+
+            submitted_add = st.form_submit_button("💾 Lưu thành viên mới", type="primary")
+
+            if submitted_add:
+                if not (full_name_new and username_new and password_new):
+                    st.warning("Vui lòng nhập đủ Họ tên, Username và Mật khẩu.")
+                else:
+                    role_new = "admin" if is_admin_new else ("btc" if is_btc_new else "player")
+                    is_approved_val = 1 if auto_approve_new else 0
+                    try:
+                        conn_add = get_conn()
+                        cur_add = conn_add.cursor()
+                        cur_add.execute(
+                            """
+                            INSERT INTO users (
+                                username, password_hash, full_name, age,
+                                role, is_approved, is_btc, is_admin, created_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                username_new,
+                                hash_password(password_new),
+                                full_name_new,
+                                age_new,
+                                role_new,
+                                is_approved_val,
+                                1 if is_btc_new else 0,
+                                1 if is_admin_new else 0,
+                                datetime.utcnow().isoformat(),
+                            ),
+                        )
+                        conn_add.commit()
+                        conn_add.close()
+                        st.success("Đã thêm thành viên mới.")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("Username đã tồn tại, hãy chọn username khác.")
+
+    # =========================
+    # 2. DANH SÁCH THÀNH VIÊN & PHÂN QUYỀN
+    # =========================
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, age, role, is_approved, is_btc, is_admin FROM users ORDER BY created_at DESC")
+    cur.execute(
+        "SELECT id, username, full_name, age, role, is_approved, is_btc, is_admin "
+        "FROM users ORDER BY created_at DESC"
+    )
     users = cur.fetchall()
 
     if not users:
@@ -541,15 +732,23 @@ def ui_member_management():
     st.markdown("### Danh sách thành viên")
 
     with st.form("members_form"):
-        # Header
-        header_cols = st.columns([0.05, 0.15, 0.25, 0.1, 0.15, 0.15, 0.1])
-        header_cols[0].write("ID")
-        header_cols[1].write("Username")
-        header_cols[2].write("Họ tên")
-        header_cols[3].write("Tuổi")
-        header_cols[4].write("Ban tổ chức")
-        header_cols[5].write("Admin")
-        header_cols[6].write("Duyệt")
+        header_cols = st.columns([0.05, 0.2, 0.25, 0.1, 0.15, 0.15, 0.1])
+        with header_cols[0]:
+            st.markdown("**ID**")
+        with header_cols[1]:
+            st.markdown("**Username**")
+        with header_cols[2]:
+            st.markdown("**Họ tên**")
+        with header_cols[3]:
+            st.markdown("**Tuổi**")
+        with header_cols[4]:
+            st.markdown("**BTC**")
+        with header_cols[5]:
+            st.markdown("**Admin**")
+        with header_cols[6]:
+            st.markdown("**Duyệt**")
+
+        st.markdown("---")
 
         new_is_btc = {}
         new_is_admin = {}
@@ -564,49 +763,41 @@ def ui_member_management():
             is_btc = u["is_btc"]
             is_admin = u["is_admin"]
 
-            cols = st.columns([0.05, 0.15, 0.25, 0.1, 0.15, 0.15, 0.1])
-
+            cols = st.columns([0.05, 0.2, 0.25, 0.1, 0.15, 0.15, 0.1])
             cols[0].write(uid)
             cols[1].write(username)
             cols[2].write(full_name)
             cols[3].write(age if age is not None else "")
 
-            # Checkbox BTC (mặc định theo is_btc)
-            btc_key = f"btc_{uid}"
             btc_checked = cols[4].checkbox(
-                "",
+                "BTC",
                 value=bool(is_btc),
-                key=btc_key,
+                key=f"btc_{uid}",
                 label_visibility="collapsed",
             )
-
-            # Checkbox Admin (mặc định theo is_admin)
-            admin_key = f"admin_{uid}"
             admin_checked = cols[5].checkbox(
-                "",
+                "Admin",
                 value=bool(is_admin),
-                key=admin_key,
+                key=f"admin_{uid}",
                 label_visibility="collapsed",
             )
 
             new_is_btc[uid] = 1 if btc_checked else 0
             new_is_admin[uid] = 1 if admin_checked else 0
 
-            # Cột duyệt
             if not is_approved:
-                approve_key = f"approve_{uid}"
                 approve_checked = cols[6].checkbox(
-                    "",
-                    key=approve_key,
+                    "Approve",
+                    key=f"approve_{uid}",
                     label_visibility="collapsed",
                 )
                 approve_flags[uid] = approve_checked
             else:
-                cols[6].write("✔")
+                cols[6].markdown("✅")
 
-        submitted = st.form_submit_button("Lưu cập nhật tất cả")
+        st.markdown("---")
 
-        if submitted:
+        if st.form_submit_button("💾 Lưu cập nhật", type="primary"):
             for u in users:
                 uid = u["id"]
                 old_btc = u["is_btc"]
@@ -615,13 +806,8 @@ def ui_member_management():
 
                 ni_btc = new_is_btc.get(uid, old_btc)
                 ni_admin = new_is_admin.get(uid, old_admin)
+                new_approved = 1 if uid in approve_flags and approve_flags[uid] else old_approved
 
-                # Nếu tick duyệt thì cho approved = 1, không hỗ trợ bỏ duyệt
-                new_approved = old_approved
-                if uid in approve_flags and approve_flags[uid]:
-                    new_approved = 1
-
-                # Đồng bộ cột role theo 2 flag (cho tương thích cũ)
                 if ni_admin:
                     new_role = "admin"
                 elif ni_btc:
@@ -629,7 +815,12 @@ def ui_member_management():
                 else:
                     new_role = "player"
 
-                if (ni_btc != old_btc) or (ni_admin != old_admin) or (new_approved != old_approved) or (new_role != u["role"]):
+                if (
+                    ni_btc != old_btc
+                    or ni_admin != old_admin
+                    or new_approved != old_approved
+                    or new_role != u["role"]
+                ):
                     cur.execute(
                         """
                         UPDATE users
@@ -641,132 +832,119 @@ def ui_member_management():
 
             conn.commit()
             conn.close()
-            st.success("Đã cập nhật danh sách thành viên.")
+            st.success("Đã cập nhật.")
             st.rerun()
 
     conn.close()
 
 def ui_hnpr_page():
-    st.subheader("Bảng xếp hạng trình độ HNPR")
+    hnpr = compute_hnpr()
+    btc_rank = get_btc_ranking()
 
-    ranking = compute_hnpr()
-    if not ranking:
-        st.info("Chưa có dữ liệu bảng xếp hạng cá nhân nào.")
-        return
+    user = st.session_state.get("user")
+    is_admin = bool(user.get("is_admin", 0)) if user else False
+    is_btc = bool(user.get("is_btc", 0)) if user else False
+    can_edit_btc = (is_admin or is_btc)
 
-    st.write("Bảng HNPR (tính theo trung bình vị trí xếp hạng cá nhân):")
-    st.table([
-        {
-            "Hạng": r["rank"],
-            "VĐV": r["full_name"],
-            "Vị trí TB": round(r["avg_pos"], 2),
-            "Số phiếu": r["vote_count"]
-        }
-        for r in ranking
-    ])
+    # =========================
+    # PHẦN XEM: HNPR & BXH BTC SIDE-BY-SIDE
+    # =========================
+    col_left, col_right = st.columns(2)
 
-def ui_home():
-    st.subheader("HNX Pickleball Allstars")
+    # --- Cột trái: HNPR ---
+    with col_left:
+        st.markdown("#### HNPR (bởi cộng đồng thành viên)")
 
-    st.markdown("### Giải đấu đang diễn ra")
-    t_active = get_tournament_active()
-    if t_active:
-        st.write(f"**{t_active['name']}** – {t_active['location'] or ''}")
-        comps = get_competitors(t_active["id"])
-        if comps:
-            st.markdown("**Danh sách cặp/đội**")
-            st.table([{"ID": c["id"], "Tên": c["name"], "Loại": c["kind"]} for c in comps])
-
-            st.markdown("**Bảng xếp hạng hiện tại**")
-            standings = compute_standings(t_active["id"])
-            if standings:
-                st.table([
-                    {
-                        "Thứ hạng": i + 1,
-                        "Tên": s["name"],
-                        "Trận thắng": s["wins"],
-                        "Hiệu số point": s["diff"],
-                    }
-                    for i, s in enumerate(standings)
-                ])
-            else:
-                st.info("Chưa có kết quả trận đấu.")
+        if not hnpr:
+            st.info("Chưa có đủ dữ liệu để tính HNPR.")
         else:
-            st.info("Giải đấu chưa chia cặp/đội.")
-    else:
-        st.info("Hiện chưa có giải đấu nào được đánh dấu đang diễn ra.")
+            display_rows = []
+            for idx, r in enumerate(hnpr, start=1):
+                medal = ""#🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else ""
+                display_rows.append({
+                    "STT": f"{idx} {medal}",
+                    "Tên VĐV": r["full_name"],
+                    "HNPR": round(r["avg_pos"], 2),
+                })
 
-    st.markdown("---")
-    st.markdown("### Bảng xếp hạng HNPR")
-    ui_hnpr_page()
+            st.dataframe(
+                display_rows,
+                hide_index=True,
+                use_container_width=True,
+                height=500,
+            )
 
-    st.markdown("---")
-    st.markdown("### Đăng ký / Đăng nhập")
-    st.write("Sử dụng menu bên trái để đăng nhập hoặc đăng ký tài khoản mới.")
+    # --- Cột phải: BXH BTC ---
+    with col_right:
+        st.markdown("#### BXH với Ban tổ chức")
 
-def ui_profile_page():
-    require_login()
-    user = st.session_state["user"]
-    st.subheader("Trang cá nhân")
+        if not btc_rank:
+            st.info("Chưa có BXH do Ban tổ chức thiết lập.")
+        else:
+            btc_rows = []
+            for idx, r in enumerate(btc_rank, start=1):
+                btc_rows.append({
+                    "STT": idx,
+                    "Tên VĐV": r["full_name"],
+                })
 
-    with st.expander("Thông tin cá nhân", expanded=True):
-        full_name = st.text_input("Họ tên", value=user["full_name"])
-        age = st.number_input("Tuổi", min_value=5, max_value=100, value=user.get("age") or 30, step=1)
-        new_password = st.text_input("Đổi mật khẩu (bỏ trống nếu không đổi)", type="password")
-        if st.button("Lưu thông tin cá nhân"):
-            conn = get_conn()
-            cur = conn.cursor()
-            if new_password:
-                cur.execute("""
-                    UPDATE users
-                    SET full_name = ?, age = ?, password_hash = ?
-                    WHERE id = ?
-                """, (full_name, age, hash_password(new_password), user["id"]))
-            else:
-                cur.execute("""
-                    UPDATE users
-                    SET full_name = ?, age = ?
-                    WHERE id = ?
-                """, (full_name, age, user["id"]))
-            conn.commit()
-            conn.close()
-            # refresh session
-            st.session_state["user"] = dict(get_user_by_id(user["id"]))
-            st.success("Đã cập nhật thông tin.")
+            st.dataframe(
+                btc_rows,
+                hide_index=True,
+                use_container_width=True,
+                height=500,
+            )
 
-    st.markdown("---")
-    st.subheader("Bảng xếp hạng cá nhân")
-
-    owner_id = user["id"]
-    existing = get_personal_ranking(owner_id)
-
-    players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
-
-    if not players:
-        st.info("Chưa có đủ thành viên để tạo bảng xếp hạng.")
+    # =========================
+    # PHẦN QUẢN LÝ BXH BTC (chỉ Admin/BTC)
+    # =========================
+    if not can_edit_btc:
+        # Public / player: chỉ xem 2 bảng ở trên
         return
 
-    if not existing:
-        st.write("Bạn chưa có bảng xếp hạng cá nhân.")
-        if st.button("Tạo bảng xếp hạng dựa trên HNPR / ABC"):
-            order_ids = get_hnpr_order_or_alpha()
-            order_ids = [uid for uid in order_ids if uid != owner_id]
-            save_personal_ranking(owner_id, order_ids)
-            st.success("Đã tạo bảng xếp hạng cá nhân.")
+    st.markdown("---")
+    st.markdown("### 🛠️ Quản lý BXH do Ban tổ chức thiết lập")
+
+    players = get_all_players(only_approved=True)
+    if not players:
+        st.info("Chưa có thành viên nào để xếp hạng.")
+        return
+
+    # Nếu chưa có BXH BTC: cho phép khởi tạo
+    if not btc_rank:
+        st.write("Hiện chưa có BXH BTC. Bạn có thể khởi tạo dựa trên HNPR (nếu có) hoặc thứ tự ABC.")
+
+        if st.button("Tạo BXH BTC dựa trên HNPR / ABC", type="primary"):
+            if hnpr:
+                order_ids = [r["user_id"] for r in hnpr]
+                current_set = set(order_ids)
+                others = [p for p in players if p["id"] not in current_set]
+                others_sorted = sorted(others, key=lambda p: p["full_name"])
+                order_ids.extend([p["id"] for p in others_sorted])
+            else:
+                players_sorted = sorted(players, key=lambda p: p["full_name"])
+                order_ids = [p["id"] for p in players_sorted]
+
+            save_btc_ranking(order_ids)
+            st.success("Đã khởi tạo BXH BTC.")
             st.rerun()
         return
 
-    # Show and allow reordering
-    st.write("Kéo lên / xuống bằng nút để thay đổi thứ tự (1 là mạnh nhất).")
+    # Đã có BXH BTC: UI chỉnh sửa bằng nút lên/xuống
+    st.write("Dùng nút lên/xuống để điều chỉnh BXH chung (1 là cao nhất).")
 
-    # build order list in session
-    if "personal_order" not in st.session_state:
-        st.session_state["personal_order"] = [r["ranked_user_id"] for r in existing]
+    # Khởi tạo state lần đầu
+    if "btc_order" not in st.session_state:
+        base_ids = [r["ranked_user_id"] for r in btc_rank]
+        base_set = set(base_ids)
+        extra_ids = [p["id"] for p in players if p["id"] not in base_set]
+        st.session_state["btc_order"] = base_ids + extra_ids
 
-    order = st.session_state["personal_order"]
+    order = st.session_state["btc_order"]
+    id_to_player = {p["id"]: p for p in players}
 
     for i, uid in enumerate(order):
-        player = next((p for p in players if p["id"] == uid), None)
+        player = id_to_player.get(uid)
         if not player:
             continue
 
@@ -774,298 +952,326 @@ def ui_profile_page():
         cols[0].write(i + 1)
         cols[1].write(player["full_name"])
 
-        up_key = f"up_{uid}_{i}"
-        down_key = f"down_{uid}_{i}"
+        up_key = f"btc_up_{uid}_{i}"
+        down_key = f"btc_down_{uid}_{i}"
 
-        # Nút lên
         if cols[2].button("⬆", key=up_key) and i > 0:
             order[i - 1], order[i] = order[i], order[i - 1]
-            st.session_state["personal_order"] = order
+            st.session_state["btc_order"] = order
             st.rerun()
 
-        # Nút xuống
         if cols[3].button("⬇", key=down_key) and i < len(order) - 1:
             order[i + 1], order[i] = order[i], order[i + 1]
-            st.session_state["personal_order"] = order
+            st.session_state["btc_order"] = order
             st.rerun()
 
+    col_save, col_del = st.columns(2)
+    with col_save:
+        if st.button("💾 Lưu BXH BTC", type="primary", use_container_width=True):
+            save_btc_ranking(order)
+            st.success("Đã lưu BXH BTC.")
 
-    if st.button("Lưu bảng xếp hạng"):
-        save_personal_ranking(owner_id, order)
-        st.success("Đã lưu bảng xếp hạng cá nhân.")
-    if st.button("Xoá bảng xếp hạng"):
-        delete_personal_ranking(owner_id)
-        st.session_state.pop("personal_order", None)
-        st.success("Đã xoá.")
-        st.rerun()
+    with col_del:
+        if st.button("🗑 Xoá toàn bộ BXH BTC", use_container_width=True):
+            delete_btc_ranking()
+            st.session_state.pop("btc_order", None)
+            st.success("Đã xoá BXH BTC.")
+            st.rerun()
+
+def ui_home():
+    st.subheader("Các giải đang diễn ra 🔥")
+    active_ts = get_active_tournaments()
+    if not active_ts: st.info("Chưa có giải đấu nào."); return
+    for t in active_ts:
+        with st.container():
+            st.markdown(f"""
+            <div class="tournament-card">
+                <div class="t-title">{t['name']}</div>
+            """, unsafe_allow_html=True)
+            ctype = t["competition_type"] if "competition_type" in t.keys() and t["competition_type"] in ("pair", "team") else "pair"
+            use_pools = bool(t["use_pools"]) if "use_pools" in t.keys() else False
+            st.markdown(f"""
+            <div class="info-grid">
+                <div class="info-item"><span class="info-label">📍 Địa điểm</span><span class="info-value">{t['location'] or 'N/A'}</span></div>
+                <div class="info-item"><span class="info-label">🗓️ Thời gian</span><span class="info-value">{t['start_date']} - {t['end_date']}</span></div>
+                <div class="info-item"><span class="info-label">🎾 Thể loại</span><span class="info-value">{'Theo cặp' if ctype == 'pair' else 'Theo đội'}</span></div>
+                <div class="info-item"><span class="info-label">📊 Phân bảng</span><span class="info-value">{'Có' if use_pools else 'Không'}</span></div>
+            </div></div>
+            """, unsafe_allow_html=True)
+            st.write("")
+            pair_team_label = "Chia cặp" if ctype == "pair" else "Chia đội"
+            tabs_list = ["Thành viên", "Phân nhóm", pair_team_label, "Phân bảng", "Lịch & Kết quả", "Xếp hạng"] if use_pools else ["Thành viên", "Phân nhóm", pair_team_label, "Lịch & Kết quả", "Xếp hạng"]
+            tab_objs = st.tabs(tabs_list)
+            with tab_objs[0]: ui_tournament_players_view(t["id"])
+            with tab_objs[1]: ui_tournament_groups_view(t["id"])
+            with tab_objs[2]: ui_tournament_pairs_teams_view(t["id"])
+            if use_pools:
+                with tab_objs[3]: ui_tournament_pools_view(t["id"])
+                with tab_objs[4]: ui_tournament_results_view(t["id"])
+                with tab_objs[5]: ui_tournament_standings(t["id"])
+            else:
+                with tab_objs[3]: ui_tournament_results_view(t["id"])
+                with tab_objs[4]: ui_tournament_standings(t["id"])
+        st.write("")
+
+def ui_profile_page():
+    require_login(); user = st.session_state["user"]
+    st.subheader(f"👤 Trang cá nhân: {user['full_name']}")
+    tab_info, tab_rank = st.tabs(["Thông tin cá nhân", "Bảng xếp hạng cá nhân"])
+    with tab_rank:
+        owner_id = user["id"]; existing = get_personal_ranking(owner_id)
+        players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
+        if not players: st.info("Chưa có đủ thành viên."); return
+        if not existing:
+            st.info("Chưa có BXH cá nhân.")
+            if st.button("Tạo BXH tự động", type="primary"):
+                order_ids = get_hnpr_order_or_alpha(); order_ids = [uid for uid in order_ids if uid != owner_id]
+                save_personal_ranking(owner_id, order_ids); st.success("Đã tạo."); st.rerun()
+            return
+        if "personal_order" not in st.session_state: st.session_state["personal_order"] = [r["ranked_user_id"] for r in existing]
+        order = st.session_state["personal_order"]
+        for i, uid in enumerate(order):
+            player = next((p for p in players if p["id"] == uid), None)
+            if not player: continue
+            cols = st.columns([0.1, 0.6, 0.1, 0.1])
+            cols[0].write(f"#{i + 1}"); cols[1].write(player["full_name"])
+            if cols[2].button("⬆", key=f"up_{uid}_{i}") and i > 0: order[i-1], order[i] = order[i], order[i-1]; st.session_state["personal_order"] = order; st.rerun()
+            if cols[3].button("⬇", key=f"down_{uid}_{i}") and i < len(order)-1: order[i+1], order[i] = order[i], order[i+1]; st.session_state["personal_order"] = order; st.rerun()
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        if c1.button("💾 Lưu BXH", type="primary", use_container_width=True): save_personal_ranking(owner_id, order); st.success("Đã lưu.")
+        if c2.button("🗑️ Xoá BXH", use_container_width=True): delete_personal_ranking(owner_id); st.session_state.pop("personal_order", None); st.rerun()
+    with tab_info:
+        col_form, _ = st.columns([1, 1])
+        with col_form:
+            full_name = st.text_input("Họ tên", value=user["full_name"])
+            age = st.number_input("Tuổi", min_value=5, max_value=100, value=user.get("age") or 30, step=1)
+            new_password = st.text_input("Đổi mật khẩu", type="password")
+            if st.button("💾 Lưu thông tin", type="primary"):
+                conn = get_conn(); cur = conn.cursor()
+                if new_password: cur.execute("UPDATE users SET full_name = ?, age = ?, password_hash = ? WHERE id = ?", (full_name, age, hash_password(new_password), user["id"]))
+                else: cur.execute("UPDATE users SET full_name = ?, age = ? WHERE id = ?", (full_name, age, user["id"]))
+                conn.commit(); conn.close(); st.session_state["user"] = dict(get_user_by_id(user["id"])); st.success("Đã cập nhật.")
+        st.markdown("---")
+        if st.button("🚪 Đăng xuất"):
+            delete_session_token(st.session_state.get("login_token"))
+            st.session_state["user"] = None; st.session_state["login_token"] = None; st.query_params = {}; st.rerun()
 
 def ui_tournament_page():
     require_role(["admin", "btc"])
-
-    # mode: "list" hoặc "detail"
-    if "tournament_view_mode" not in st.session_state:
-        st.session_state["tournament_view_mode"] = "list"
-    if "selected_tournament_id" not in st.session_state:
-        st.session_state["selected_tournament_id"] = None
-
-    mode = st.session_state["tournament_view_mode"]
-    t_id = st.session_state["selected_tournament_id"]
-
-    if mode == "detail" and t_id is not None:
-        ui_tournament_detail_page(t_id)
-    else:
-        ui_tournament_list_page()
+    if "tournament_view_mode" not in st.session_state: st.session_state["tournament_view_mode"] = "list"
+    if st.session_state["tournament_view_mode"] == "detail" and st.session_state["selected_tournament_id"]:
+        ui_tournament_detail_page(st.session_state["selected_tournament_id"])
+    else: ui_tournament_list_page()
 
 def ui_tournament_list_page():
-    require_role(["admin", "btc"])
-    st.subheader("Quản lý giải đấu – Danh sách giải")
-
+    st.subheader("🛠️ Quản lý giải đấu")
+    if "show_create_t" not in st.session_state: st.session_state["show_create_t"] = False
     tournaments = get_tournaments()
-
-    if tournaments:
-        st.markdown("### Danh sách giải đấu")
-
-        # Header
-        header_cols = st.columns([0.07, 0.3, 0.18, 0.2, 0.09, 0.08, 0.08])
-        header_cols[0].write("ID")
-        header_cols[1].write("Tên giải")
-        header_cols[2].write("Thời gian")
-        header_cols[3].write("Địa điểm")
-        header_cols[4].write("Đang diễn ra?")
-        header_cols[5].write("Xem")
-        header_cols[6].write("Sửa / Xóa")
-
+    if tournaments and not st.session_state["show_create_t"]:
+        st.markdown(f"**Danh sách giải ({len(tournaments)})**")
+        cols = st.columns([0.05, 0.25, 0.15, 0.2, 0.1, 0.15, 0.1])
+        cols[0].markdown("**ID**"); cols[1].markdown("**Tên giải**"); cols[2].markdown("**Thể loại**"); cols[3].markdown("**Thời gian**"); cols[4].markdown("**Active**"); cols[5].markdown("**Thao tác**")
+        st.markdown("---")
         for t in tournaments:
-            tid = t["id"]
-            cols = st.columns([0.07, 0.3, 0.18, 0.2, 0.09, 0.08, 0.08])
+            tid = t["id"]; ctype = t["competition_type"] if t["competition_type"] in ("pair", "team") else "pair"
+            c = st.columns([0.05, 0.25, 0.15, 0.2, 0.1, 0.15, 0.1])
+            c[0].write(tid); c[1].write(t["name"]); c[2].write("Cặp" if ctype == "pair" else "Đội"); c[3].write(f"{t['start_date'] or ''}"); c[4].markdown("✅" if t["is_active"] else "")
+            with c[5]:
+                b1, b2, b3 = st.columns(3)
+                if b1.button("👁", key=f"v_{tid}"): st.session_state["tournament_view_mode"] = "detail"; st.session_state["selected_tournament_id"] = tid; st.rerun()
+                if b2.button("✏", key=f"e_{tid}"): st.session_state["editing_tournament_id"] = tid; st.session_state["show_create_t"] = True; st.rerun()
+                if b3.button("🗑", key=f"d_{tid}"): delete_tournament(tid); st.rerun()
+        st.markdown("---")
 
-            cols[0].write(tid)
-            cols[1].write(t["name"])
-            cols[2].write(f"{t['start_date'] or ''} - {t['end_date'] or ''}")
-            cols[3].write(t["location"] or "")
-            cols[4].write("✔" if t["is_active"] else "")
+    if not st.session_state["show_create_t"]:
+        if st.button("➕ Thêm giải mới", type="primary"): st.session_state["show_create_t"] = True; st.rerun()
+        return
 
-            # Nút Xem
-            if cols[5].button("Xem", key=f"view_t_{tid}"):
-                st.session_state["tournament_view_mode"] = "detail"
-                st.session_state["selected_tournament_id"] = tid
-                st.rerun()
+    with st.container():
+        st.markdown("### 📝 Thông tin giải đấu")
+        editing_id = st.session_state.get("editing_tournament_id")
+        if editing_id:
+            t = get_tournament_by_id(editing_id)
+            d_name = t["name"]; d_start = t["start_date"]; d_end = t["end_date"]; d_loc = t["location"]; d_nc = t["num_courts"] or 4; d_act = bool(t["is_active"]); d_ctype = t.get("competition_type", "pair"); d_pool = bool(t.get("use_pools", 1)); d_adv = t.get("adv_per_pool")
+        else: d_name = ""; d_start = ""; d_end = ""; d_loc = ""; d_nc = 4; d_act = False; d_ctype = "pair"; d_pool = True; d_adv = None
 
-            # Nút Sửa/Xóa
-            c_edit, c_del = cols[6].columns(2)
-            if c_edit.button("✏", key=f"edit_t_{tid}"):
-                st.session_state["editing_tournament_id"] = tid
-                st.rerun()
-            if c_del.button("🗑", key=f"del_t_{tid}"):
-                delete_tournament(tid)
-                st.success(f"Đã xoá giải {t['name']}.")
-                st.rerun()
-    else:
-        st.info("Chưa có giải đấu nào.")
-
-    st.markdown("---")
-
-    # Form thêm mới / sửa giải đấu
-    editing_id = st.session_state.get("editing_tournament_id")
-
-    if editing_id:
-        st.markdown("### Sửa giải đấu")
-        t = get_tournament_by_id(editing_id)
-    else:
-        st.markdown("### Thêm giải đấu mới")
-        t = None
-
-    name = st.text_input("Tên giải đấu", value=t["name"] if t else "")
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.text_input("Ngày bắt đầu (text)", value=t["start_date"] if t else "")
-    with col2:
-        end_date = st.text_input("Ngày kết thúc (text)", value=t["end_date"] if t else "")
-    location = st.text_input("Địa điểm", value=t["location"] if t else "")
-    num_courts = st.number_input(
-        "Số sân thi đấu",
-        min_value=1,
-        max_value=20,
-        value=t["num_courts"] if t and t["num_courts"] else 4,
-        step=1
-    )
-    is_active = st.checkbox(
-        "Đánh dấu là giải đang diễn ra",
-        value=bool(t["is_active"]) if t else False
-    )
-
-    col_save, col_cancel = st.columns(2)
-    with col_save:
-        if st.button("Lưu giải đấu"):
-            if not name:
-                st.warning("Vui lòng nhập tên giải.")
-            else:
-                tid = editing_id if t else None
-                upsert_tournament(tid, name, start_date, end_date, location, num_courts, is_active)
-                st.success("Đã lưu giải đấu.")
-                st.session_state["editing_tournament_id"] = None
-                st.rerun()
-    with col_cancel:
-        if editing_id and st.button("Hủy sửa"):
-            st.session_state["editing_tournament_id"] = None
-            st.rerun()
+        with st.form("tournament_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("Tên giải", value=d_name)
+                location = st.text_input("Địa điểm", value=d_loc)
+                num_courts = st.number_input("Số sân", 1, 20, d_nc)
+            with col2:
+                c_d1, c_d2 = st.columns(2)
+                start_date = c_d1.text_input("Ngày bắt đầu", value=d_start or "")
+                end_date = c_d2.text_input("Ngày kết thúc", value=d_end or "")
+                ctype = st.radio("Thể loại", ["Theo cặp", "Theo đội"], index=0 if d_ctype == "pair" else 1, horizontal=True)
+                use_pools = st.checkbox("Có phân bảng", value=d_pool); is_active = st.checkbox("Đang diễn ra", value=d_act)
+            st.markdown("---")
+            c_s, c_c = st.columns([1, 1])
+            if c_s.form_submit_button("💾 Lưu", type="primary", use_container_width=True):
+                if not name: st.warning("Nhập tên giải")
+                else:
+                    upsert_tournament(editing_id, name, start_date, end_date, location, num_courts, is_active, "pair" if ctype=="Theo cặp" else "team", use_pools, d_adv)
+                    st.success("Đã lưu."); st.session_state["editing_tournament_id"] = None; st.session_state["show_create_t"] = False; st.rerun()
+            if c_c.form_submit_button("Huỷ", use_container_width=True):
+                st.session_state["editing_tournament_id"] = None; st.session_state["show_create_t"] = False; st.rerun()
 
 def ui_tournament_detail_page(t_id: int):
-    require_role(["admin", "btc"])
-
     t = get_tournament_by_id(t_id)
-    if not t:
-        st.warning("Không tìm thấy giải đấu.")
-        # quay về list
-        st.session_state["tournament_view_mode"] = "list"
-        st.session_state["selected_tournament_id"] = None
-        st.rerun()
+    if not t: st.session_state["tournament_view_mode"] = "list"; st.rerun()
+    if st.button("⬅ Quay lại", use_container_width=False): st.session_state["tournament_view_mode"] = "list"; st.rerun()
+    ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    use_pools = bool(t["use_pools"])
+    st.markdown(f"## ⚙️ Quản lý: {t['name']}")
+    st.markdown(f"""
+    <div class="info-grid" style="margin-bottom: 20px;">
+        <div class="info-item"><span class="info-label">📍 Địa điểm</span><span class="info-value">{t['location'] or 'N/A'}</span></div>
+        <div class="info-item"><span class="info-label">📅 Thời gian</span><span class="info-value">{t['start_date']}</span></div>
+        <div class="info-item"><span class="info-label">🎾 Thể thức</span><span class="info-value">{'Theo Cặp' if ctype == 'pair' else 'Theo Đội'}</span></div>
+        <div class="info-item"><span class="info-label">🔥 Trạng thái</span><span class="info-value">{'Đang chạy' if t['is_active'] else 'Inactive'}</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+    pair_team_label = "Chia cặp" if ctype == "pair" else "Chia đội"
+    tabs_list = ["Thành viên", "Phân nhóm", pair_team_label, "Phân bảng", "Lịch & KQ", "Xếp hạng"] if use_pools else ["Thành viên", "Phân nhóm", pair_team_label, "Lịch & KQ", "Xếp hạng"]
+    tabs = st.tabs(tabs_list)
+    with tabs[0]: ui_tournament_players(t_id)
+    with tabs[1]: ui_tournament_groups(t_id)
+    with tabs[2]: ui_tournament_pairs_teams(t_id)
+    if use_pools:
+        with tabs[3]: ui_tournament_pools(t_id)
+        with tabs[4]: ui_tournament_results(t_id)
+        with tabs[5]: ui_tournament_standings(t_id)
+    else:
+        with tabs[3]: ui_tournament_results(t_id)
+        with tabs[4]: ui_tournament_standings(t_id)
 
-    # Nút quay lại danh sách
-    if st.button("⬅ Quay lại danh sách giải đấu"):
-        st.session_state["tournament_view_mode"] = "list"
-        st.session_state["selected_tournament_id"] = None
-        st.rerun()
-
-    st.subheader(f"Quản lý chi tiết giải: {t['name']}")
-
-    # Thông tin chung của giải
-    with st.expander("Thông tin chung của giải", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.write(f"**Tên giải:** {t['name']}")
-            st.write(f"**Địa điểm:** {t['location'] or ''}")
-        with col2:
-            st.write(f"**Thời gian:** {t['start_date'] or ''} - {t['end_date'] or ''}")
-            st.write(f"**Số sân:** {t['num_courts'] or ''}")
-        with col3:
-            st.write(f"**Đang diễn ra:** {'✔' if t['is_active'] else ''}")
-            st.write(f"**ID:** {t['id']}")
-
-    st.markdown("---")
-
-    # Các tab chức năng như hiện tại, nhưng dùng t_id cố định
-    tab_players, tab_groups, tab_pairs, tab_pools, tab_results = st.tabs(
-        ["Thành viên tham gia", "Phân nhóm", "Chia cặp/đội", "Phân bảng", "Kết quả & xếp hạng"]
-    )
-
-    with tab_players:
-        ui_tournament_players(t_id)
-    with tab_groups:
-        ui_tournament_groups(t_id)
-    with tab_pairs:
-        ui_tournament_pairs_teams(t_id)
-    with tab_pools:
-        ui_tournament_pools(t_id)
-    with tab_results:
-        ui_tournament_results(t_id)
-
-def ui_tournament_players(t_id):
-    # 1. Danh sách hiện tại ở trên cùng
+def ui_tournament_players_view(t_id):
     current = get_tournament_players(t_id)
     if current:
-        st.table([
-            {"VĐV": p["full_name"], "Nhóm": p["group_name"] or ""}
-            for p in current
-        ])
-    else:
-        st.info("Chưa có thành viên tham gia giải.")
+        st.write(f"**Tham gia ({len(current)})**")
+        cols = st.columns(4)
+        for i, p in enumerate(current): cols[i % 4].markdown(f"👤 {p['full_name']}")
+    else: st.info("Chưa có VĐV.")
 
-    st.markdown("---")
-
-    # 2. Ẩn/hiện khu vực thêm/chỉnh sửa danh sách
+def ui_tournament_players(t_id):
+    current = get_tournament_players(t_id)
+    st.markdown("#### 1. Thành viên tham gia")
+    if current:
+        st.success(f"Hiện có **{len(current)}** VĐV.")
+        with st.expander("Chi tiết"):
+            cols = st.columns(4)
+            for i, p in enumerate(current): cols[i % 4].write(f"- {p['full_name']}")
+    else: st.info("Chưa có thành viên.")
     flag_key = f"show_add_players_{t_id}"
-    if flag_key not in st.session_state:
-        st.session_state[flag_key] = False
-
-    btn_col, _ = st.columns([0.3, 0.7])
+    if flag_key not in st.session_state: st.session_state[flag_key] = False
     if not st.session_state[flag_key]:
-        if btn_col.button("➕ Thêm / chỉnh danh sách thành viên", key=f"btn_show_add_{t_id}"):
-            st.session_state[flag_key] = True
-            st.rerun()
+        if st.button("➕ Thêm / Sửa", key=f"btn_add_{t_id}"): st.session_state[flag_key] = True; st.rerun()
     else:
-        if btn_col.button("Ẩn phần thêm thành viên", key=f"btn_hide_add_{t_id}"):
-            st.session_state[flag_key] = False
-            st.rerun()
+        if st.button("Huỷ", key=f"btn_hide_{t_id}"): st.session_state[flag_key] = False; st.rerun()
+        st.write("Chọn thành viên:")
+        all_p = get_all_players(only_approved=True)
+        cur_ids = {p["user_id"] for p in current}; sel_ids = set(cur_ids)
+        with st.form(f"p_form_{t_id}"):
+            cols = st.columns(4)
+            for i, p in enumerate(all_p):
+                if cols[i%4].checkbox(f"{p['full_name']}", value=p["id"] in cur_ids, key=f"chk_{t_id}_{p['id']}"): sel_ids.add(p["id"])
+                else: sel_ids.discard(p["id"])
+            if st.form_submit_button("💾 Lưu", type="primary"): set_tournament_players(t_id, list(sel_ids)); st.session_state[flag_key] = False; st.rerun()
 
-    # 3. Khi bật lên thì hiển thị danh sách tick nhiều cột
-    if not st.session_state[flag_key]:
-        return
-
-    st.markdown("#### Chọn thành viên tham gia giải")
-
-    all_players = get_all_players(only_approved=True)
-    current_ids = {p["user_id"] for p in current}
-
-    # Chia thành nhiều cột cho đỡ dài
-    num_cols = 3  # có thể đổi thành 4 nếu danh sách rất dài
-    cols = st.columns(num_cols)
-
-    # Bắt đầu từ danh sách hiện trong DB, sau đó override theo checkbox
-    selected_ids = set(current_ids)
-
-    for i, p in enumerate(all_players):
-        col = cols[i % num_cols]
-        checked_default = p["id"] in current_ids
-        chk = col.checkbox(
-            f"{p['full_name']}",
-            value=checked_default,
-            key=f"tp_{t_id}_{p['id']}",
-        )
-        if chk:
-            selected_ids.add(p["id"])
-        else:
-            selected_ids.discard(p["id"])
-
-    if st.button("💾 Lưu danh sách tham gia", key=f"save_tp_{t_id}"):
-        set_tournament_players(t_id, list(selected_ids))
-        st.success("Đã lưu danh sách thành viên tham gia.")
-        st.rerun()
+def ui_tournament_groups_view(t_id):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("SELECT tp.user_id, tp.group_name, u.full_name FROM tournament_players tp JOIN users u ON u.id = tp.user_id WHERE tp.tournament_id = ? ORDER BY tp.group_name, u.full_name", (t_id,))
+    rows = cur.fetchall(); conn.close()
+    if not rows: st.info("Chưa phân nhóm."); return
+    g_map = {}
+    for r in rows: g_map.setdefault(r["group_name"] or "N/A", []).append(r["full_name"])
+    cols = st.columns(len(g_map) if g_map else 1)
+    for i, (g, names) in enumerate(sorted(g_map.items())):
+        with cols[i%4]:
+            st.info(f"**Nhóm {g}** ({len(names)})")
+            for n in names: st.markdown(f"• {n}")
 
 def ui_tournament_groups(t_id):
-    st.markdown("### Phân nhóm trình độ")
-
     players = get_tournament_players(t_id)
     if not players:
-        st.info("Chưa có thành viên tham gia giải.")
+        st.warning("Thêm thành viên trước.")
         return
 
-    use_groups = st.checkbox("Có phân nhóm theo trình độ?", value=True)
+    st.markdown("#### 2. Cấu hình phân nhóm")
 
-    if not use_groups:
-        if st.button("Bỏ phân nhóm (xoá group_name)"):
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("UPDATE tournament_players SET group_name = NULL WHERE tournament_id = ?", (t_id,))
-            conn.commit()
-            conn.close()
-            st.success("Đã bỏ phân nhóm.")
-        return
+    # --- Cấu hình số nhóm, tên nhóm, số VĐV mỗi nhóm ---
+    c1, c2 = st.columns([1, 2])
+    num = c1.number_input("Số nhóm", 1, 8, 4, key=f"ng_{t_id}")
+    g_defs = []
+    for i in range(int(num)):
+        c_a, c_b = st.columns([1, 1])
+        gn = c_a.text_input(f"Tên {i+1}", chr(ord('A') + i), key=f"gn_{t_id}_{i}")
+        gs = c_b.number_input(
+            f"Số lượng thành viên nhóm {gn}",
+            1,
+            len(players),
+            max(1, len(players) // int(num)),
+            key=f"gs_{t_id}_{i}",
+        )
+        g_defs.append((gn, int(gs)))
 
-    num_groups = st.number_input("Số nhóm", min_value=2, max_value=8, value=4, step=1)
-    group_defs = []
-    total_players = len(players)
-    default_size = total_players // num_groups
+    # --- Chọn nguồn xếp hạng để phân nhóm ---
+    st.markdown("##### Nguồn xếp hạng dùng để phân nhóm tự động")
+    ranking_source = st.radio(
+        "",
+        ["HNPR (BXH cá nhân)", "BXH BTC (Ban tổ chức)"],
+        index=0,
+        horizontal=True,
+        key=f"rank_source_{t_id}",
+    )
 
-    for i in range(int(num_groups)):
-        cols = st.columns(2)
-        name = cols[0].text_input(f"Tên nhóm #{i+1}", value=chr(ord('A') + i), key=f"gname_{t_id}_{i}")
-        size = cols[1].number_input(f"Số VĐV nhóm {name}", min_value=1, max_value=total_players, value=default_size, step=1, key=f"gsize_{t_id}_{i}")
-        group_defs.append((name, int(size)))
+    c_x, c_y = st.columns(2)
 
-    if group_defs and group_defs[0][1] != group_defs[-1][1]:
-        st.warning("Lưu ý: số lượng nhóm mạnh nhất và yếu nhất đang không bằng nhau.")
+    # Nút phân nhóm tự động
+    if c_x.button("⚡ Phân nhóm tự động"):
+        player_ids = [p["user_id"] for p in players]
+        order_ids = []
 
-    if st.button("Tự động phân nhóm theo HNPR", key=f"auto_group_{t_id}"):
-        # sort players by HNPR (or alpha)
-        hnpr = compute_hnpr()
-        score_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
-        # smaller avg_pos = stronger
-        players_sorted = sorted(players, key=lambda p: (score_map.get(p["user_id"], 9999)))
-        # assign
+        # Ưu tiên dùng BXH BTC nếu được chọn
+        if ranking_source.startswith("BXH BTC"):
+            btc_rank = get_btc_ranking()
+            if btc_rank:
+                order_ids = [
+                    r["ranked_user_id"]
+                    for r in btc_rank
+                    if r["ranked_user_id"] in player_ids
+                ]
+
+        # Nếu không có BTC hoặc không phù hợp -> fallback sang HNPR
+        if not order_ids:
+            hnpr = compute_hnpr()
+            if hnpr:
+                order_ids = [
+                    r["user_id"]
+                    for r in hnpr
+                    if r["user_id"] in player_ids
+                ]
+
+        # Nếu vẫn không có -> fallback ABC
+        if not order_ids:
+            players_sorted_alpha = sorted(players, key=lambda p: p["full_name"])
+            order_ids = [p["user_id"] for p in players_sorted_alpha]
+
+        # rank_map: user_id -> thứ tự (càng nhỏ càng mạnh)
+        rank_map = {uid: idx for idx, uid in enumerate(order_ids)}
+
+        # Sắp xếp danh sách VĐV theo thứ tự rank_map
+        players_sorted = sorted(
+            players,
+            key=lambda p: rank_map.get(p["user_id"], 9999),
+        )
+
+        # Gán vào các nhóm theo cấu hình g_defs
         assigned = {}
         idx = 0
-        for name, size in group_defs:
+        for name, size in g_defs:
             for _ in range(size):
                 if idx >= len(players_sorted):
                     break
@@ -1074,320 +1280,236 @@ def ui_tournament_groups(t_id):
 
         conn = get_conn()
         cur = conn.cursor()
-        for uid, gname in assigned.items():
-            cur.execute("""
-                UPDATE tournament_players
-                SET group_name = ?
-                WHERE tournament_id = ? AND user_id = ?
-            """, (gname, t_id, uid))
+        for uid, gn in assigned.items():
+            cur.execute(
+                "UPDATE tournament_players SET group_name = ? WHERE tournament_id = ? AND user_id = ?",
+                (gn, t_id, uid),
+            )
         conn.commit()
         conn.close()
-        st.success("Đã phân nhóm theo HNPR.")
+        st.success("Đã phân nhóm.")
+        st.rerun()
 
-    st.markdown("#### Danh sách phân nhóm hiện tại (có thể chỉnh sửa)")
-
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT tp.user_id, tp.group_name, u.full_name
-        FROM tournament_players tp
-        JOIN users u ON u.id = tp.user_id
-        WHERE tp.tournament_id = ?
-        ORDER BY u.full_name
-    """, (t_id,))
-    rows = cur.fetchall()
-    conn.close()
-
-    new_groups = {}
-    for r in rows:
-        cols = st.columns(3)
-        cols[0].write(r["full_name"])
-        current_g = r["group_name"] or ""
-        choice = cols[1].selectbox("Nhóm", options=[""] + [gd[0] for gd in group_defs],
-                                   index=([""] + [gd[0] for gd in group_defs]).index(current_g) if current_g in [gd[0] for gd in group_defs] else 0,
-                                   key=f"edit_grp_{t_id}_{r['user_id']}")
-        new_groups[r["user_id"]] = choice or None
-
-    if st.button("Lưu cập nhật nhóm", key=f"save_grp_{t_id}"):
+    # Nút xoá phân nhóm
+    if c_y.button("🗑 Xóa phân nhóm"):
         conn = get_conn()
         cur = conn.cursor()
-        for uid, gname in new_groups.items():
-            cur.execute("""
-                UPDATE tournament_players
-                SET group_name = ?
-                WHERE tournament_id = ? AND user_id = ?
-            """, (gname, t_id, uid))
+        cur.execute(
+            "UPDATE tournament_players SET group_name = NULL WHERE tournament_id = ?",
+            (t_id,),
+        )
         conn.commit()
         conn.close()
-        st.success("Đã lưu phân nhóm.")
+        st.rerun()
 
-def ui_tournament_pairs_teams(t_id):
-    st.markdown("### Chia cặp / Chia đội")
-
-    players = get_tournament_players(t_id)
-    if not players:
-        st.info("Chưa có thành viên tham gia giải.")
-        return
-
-    mode = st.radio("Kiểu ghép", options=["Ghép theo cặp", "Chia theo đội"])
-
-    if mode == "Ghép theo cặp":
-        if st.button("Tự động ghép cặp", key=f"mk_pairs_{t_id}"):
-            make_pairs_for_tournament(t_id)
-            st.success("Đã ghép cặp.")
-    else:
-        num_teams = st.number_input("Số đội", min_value=2, max_value=16, value=4, step=1)
-        if st.button("Tự động chia đội", key=f"mk_teams_{t_id}"):
-            make_teams_for_tournament(t_id, int(num_teams))
-            st.success("Đã chia đội.")
-
-    st.markdown("#### Danh sách cặp/đội")
-    comps = get_competitors(t_id)
-    members_map = get_competitor_members_map(t_id)
-    if comps:
-        st.table([
-            {
-                "ID": c["id"],
-                "Tên": c["name"],
-                "Loại": c["kind"],
-                "Thành viên": ", ".join(name for _, name in members_map.get(c["id"], []))
-            }
-            for c in comps
-        ])
-    else:
-        st.info("Chưa có cặp/đội nào.")
+    ui_tournament_groups_view(t_id)
 
 def make_pairs_for_tournament(t_id):
     players = get_tournament_players(t_id)
-    if len(players) < 2:
-        st.warning("Cần ít nhất 2 VĐV.")
-        return
-
-    # sort by group (A strongest), then HNPR
-    hnpr = compute_hnpr()
-    score_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
-    def group_index(gname):
-        if not gname:
-            return 99
-        return ord(gname[0].upper()) - ord('A')
-
-    players_sorted = sorted(players, key=lambda p: (group_index(p["group_name"]), score_map.get(p["user_id"], 9999)))
-
-    if len(players_sorted) % 2 != 0:
-        st.warning("Số VĐV lẻ, 1 người sẽ không được ghép cặp.")
-    # pair strongest với yếu nhất dần vào
-    pairs = []
-    left = 0
-    right = len(players_sorted) - 1
-    while left < right:
-        pairs.append((players_sorted[left]["user_id"], players_sorted[right]["user_id"]))
-        left += 1
-        right -= 1
-
+    if len(players) < 2: st.warning("Cần >= 2 VĐV."); return
+    g_map = {}
+    for p in players: g_map.setdefault(p["group_name"] or "", []).append(p)
+    groups = sorted(g_map.keys(), key=lambda x: (x == "", x))
     clear_competitors_and_matches(t_id)
     conn = get_conn()
-    for i, (u1, u2) in enumerate(pairs, start=1):
-        name = f"Cặp {i}"
-        create_competitor(conn, t_id, name, "pair", [u1, u2])
-    conn.commit()
-    conn.close()
+    if len([g for g in groups if g]) >= 2:
+        g_list = sorted([g for g in groups if g])
+        random.seed()
+        for i in range(len(g_list)//2):
+            hi = g_map[g_list[i]][:]; lo = g_map[g_list[-i-1]][:]
+            random.shuffle(hi); random.shuffle(lo)
+            for k in range(min(len(hi), len(lo))): create_competitor(conn, t_id, [hi[k]["user_id"], lo[k]["user_id"]])
+    else:
+        hnpr = compute_hnpr(); s_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
+        p_sorted = sorted(players, key=lambda p: s_map.get(p["user_id"], 9999))
+        n = len(p_sorted); half = n//2; top = p_sorted[:half]; bot = p_sorted[half:]; random.shuffle(top); random.shuffle(bot)
+        for i in range(min(len(top), len(bot))): create_competitor(conn, t_id, [top[i]["user_id"], bot[i]["user_id"]])
+    conn.commit(); conn.close()
 
 def make_teams_for_tournament(t_id, num_teams):
     players = get_tournament_players(t_id)
-    if len(players) < num_teams:
-        st.warning("Số đội nhiều hơn số VĐV.")
-        return
-
-    # sort by group / HNPR như trên
-    hnpr = compute_hnpr()
-    score_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
-    def group_index(gname):
-        if not gname:
-            return 99
-        return ord(gname[0].upper()) - ord('A')
-    players_sorted = sorted(players, key=lambda p: (group_index(p["group_name"]), score_map.get(p["user_id"], 9999)))
-
-    # chia vòng tròn lần lượt vào các đội để cân bằng
-    teams_members = {i: [] for i in range(num_teams)}
-    team_idx = 0
-    for p in players_sorted:
-        teams_members[team_idx].append(p["user_id"])
-        team_idx = (team_idx + 1) % num_teams
-
+    if len(players) < num_teams: st.warning("Số đội > VĐV."); return
+    hnpr = compute_hnpr(); s_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
+    def g_idx(g): return ord(g[0].upper()) - ord('A') if g else 99
+    p_sorted = sorted(players, key=lambda p: (g_idx(p["group_name"]), s_map.get(p["user_id"], 9999)))
+    random.shuffle(p_sorted)
+    t_mems = {i: [] for i in range(num_teams)}; idx = 0
+    for p in p_sorted: t_mems[idx].append(p["user_id"]); idx = (idx+1)%num_teams
     clear_competitors_and_matches(t_id)
-    conn = get_conn()
+    conn = get_conn(); cur = conn.cursor()
     for i in range(num_teams):
-        name = f"Đội {i+1}"
-        create_competitor(conn, t_id, name, "team", teams_members[i])
-    conn.commit()
-    conn.close()
+        cur.execute("INSERT INTO competitors (tournament_id, name, kind) VALUES (?, ?, 'team')", (t_id, f"Đội {i+1}"))
+        cid = cur.lastrowid
+        for uid in t_mems[i]: cur.execute("INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)", (cid, uid))
+    conn.commit(); conn.close()
+
+def ui_tournament_pairs_teams_view(t_id):
+    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    comps = get_competitors(t_id); m_map = get_competitor_members_map(t_id)
+    if not comps: st.info("Chưa có danh sách thi đấu."); return
+    if ctype == "team":
+        for c in comps:
+            mn = [m[1] for m in m_map.get(c["id"], [])]
+            with st.expander(f"🏅 {c['name']}"): st.write(", ".join(mn))
+    else:
+        st.write("**Cặp đấu:**")
+        cols = st.columns(3)
+        for i, c in enumerate(comps): cols[i%3].success(f"🎾 {build_competitor_display_name(c['id'], m_map)}")
+
+def ui_tournament_pairs_teams(t_id):
+    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    st.markdown(f"#### 3. Tạo {'Cặp' if ctype == 'pair' else 'Đội'} thi đấu")
+    if ctype == "pair":
+        if st.button("⚡ Ghép cặp tự động", type="primary"): make_pairs_for_tournament(t_id); st.success("Xong."); st.rerun()
+    else:
+        c1, c2 = st.columns([1, 2])
+        nt = c1.number_input("Số đội", 2, 16, 4)
+        if c2.button("⚡ Chia đội tự động", type="primary"): make_teams_for_tournament(t_id, int(nt)); st.success("Xong."); st.rerun()
+    ui_tournament_pairs_teams_view(t_id)
+
+def ui_tournament_pools_view(t_id):
+    comps = get_competitors(t_id); m_map = get_competitor_members_map(t_id)
+    p_map = {}
+    for c in comps: p_map.setdefault(c["pool_name"] or "N/A", []).append(build_competitor_display_name(c["id"], m_map))
+    if not p_map: return
+    st.write("### 🎱 Danh sách Bảng")
+    cols = st.columns(len(p_map) if len(p_map) <= 4 else 4)
+    for i, (pn, ns) in enumerate(sorted(p_map.items())):
+        with cols[i%4]:
+            st.markdown(f"**Bảng {pn}**")
+            for n in ns: st.markdown(f"- {n}")
 
 def ui_tournament_pools(t_id):
-    st.markdown("### Phân bảng (giai đoạn vòng tròn)")
+    t = get_tournament_by_id(t_id); comps = get_competitors(t_id)
+    if not comps: st.warning("Tạo cặp/đội trước."); return
+    adv = t["adv_per_pool"] or 1
+    st.markdown("#### 4. Phân bảng")
+    c1, c2, c3 = st.columns([1, 1, 1])
+    np = c1.number_input("Số bảng", 1, 16, 4)
+    ap = c2.number_input("Đi tiếp/bảng", 1, 8, int(adv))
+    if c3.button("⚡ Phân bảng tự động"):
+        pns = [chr(ord('A')+i) for i in range(int(np))]
+        conn = get_conn(); cur = conn.cursor()
+        for i, c in enumerate(comps): cur.execute("UPDATE competitors SET pool_name = ? WHERE id = ?", (pns[i%len(pns)], c["id"]))
+        cur.execute("UPDATE tournaments SET adv_per_pool = ? WHERE id = ?", (int(ap), t_id))
+        conn.commit(); conn.close(); st.success("Xong."); st.rerun()
+    ui_tournament_pools_view(t_id)
 
-    comps = get_competitors(t_id)
-    if not comps:
-        st.info("Cần có cặp/đội trước khi phân bảng.")
-        return
-
-    num_pools = st.number_input("Số bảng", min_value=1, max_value=16, value=4, step=1)
-    adv_per_pool = st.number_input("Số cặp/đội đi tiếp mỗi bảng", min_value=1, max_value=16, value=2, step=1)
-
-    if st.button("Tự động phân bảng", key=f"mk_pools_{t_id}"):
-        # gán pool_name trực tiếp cho competitors theo round-robin
-        pool_names = [chr(ord('A') + i) for i in range(int(num_pools))]
-        conn = get_conn()
-        cur = conn.cursor()
-        idx = 0
-        for c in comps:
-            pool = pool_names[idx % len(pool_names)]
-            cur.execute("""
-                UPDATE competitors
-                SET pool_name = ?
-                WHERE id = ?
-            """, (pool, c["id"]))
-            idx += 1
-        conn.commit()
-        conn.close()
-        st.success("Đã phân bảng.")
-
-    st.info("Thông tin số đội đi tiếp mỗi bảng hiện chỉ lưu trên màn hình (adv_per_pool), bạn có thể ghi chú lại trong biên bản giải.")
-
-    comps = get_competitors(t_id)
-    if comps:
-        st.markdown("#### Kết quả phân bảng")
-        st.table([
-            {"ID": c["id"], "Tên": c["name"], "Bảng": c["pool_name"] or ""}
-            for c in comps
-        ])
+def ui_tournament_results_view(t_id):
+    st.markdown("### 📅 Lịch & Kết quả")
+    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    matches = get_matches(t_id); m_map = get_competitor_members_map(t_id)
+    if not matches: st.info("Chưa có trận đấu."); return
+    for m in matches:
+        if ctype == "team":
+            def gn(p1, p2): return ", ".join([get_user_by_id(uid)["full_name"] for uid in [p1, p2] if uid])
+            n1 = f"{m['name1']} <br><small>({gn(m['team1_p1_id'], m['team1_p2_id'])})</small>"
+            n2 = f"{m['name2']} <br><small>({gn(m['team2_p1_id'], m['team2_p2_id'])})</small>"
+        else:
+            n1 = build_competitor_display_name(m["competitor1_id"], m_map)
+            n2 = build_competitor_display_name(m["competitor2_id"], m_map)
+        st.markdown(f"""
+        <div style="background:white; padding:15px; border-radius:8px; border:1px solid #eee; margin-bottom:10px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="text-align:right; width:40%; font-weight:600; color:#333;">{n1}</div>
+                <div style="background:#F3F4F6; color:#333; padding:5px 15px; border-radius:20px; font-weight:bold; border:1px solid #e5e7eb;">{m['score1']} - {m['score2']}</div>
+                <div style="text-align:left; width:40%; font-weight:600; color:#333;">{n2}</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
 
 def ui_tournament_results(t_id):
-    st.markdown("### Ghi nhận kết quả & xếp hạng")
+    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    comps = get_competitors(t_id); m_map = get_competitor_members_map(t_id)
+    if not comps: return
+    with st.expander("📝 Nhập kết quả", expanded=True):
+        labels = []; c_map = {}
+        for c in comps:
+            lbl = c["name"] if c["kind"]=="team" else build_competitor_display_name(c["id"], m_map)
+            labels.append(lbl); c_map[lbl] = c["id"]
+        c1, c2 = st.columns(2); s1 = c1.selectbox("Đội 1", labels, key=f"s1_{t_id}"); s2 = c2.selectbox("Đội 2", labels, key=f"s2_{t_id}")
+        tp = None; t1i = []; t2i = []
+        if ctype == "team":
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                st.write(f"**{s1}**")
+                for uid, n in m_map.get(c_map[s1], []):
+                    if st.checkbox(n, key=f"t1_{uid}"): t1i.append(uid)
+            with cc2:
+                st.write(f"**{s2}**")
+                for uid, n in m_map.get(c_map[s2], []):
+                    if st.checkbox(n, key=f"t2_{uid}"): t2i.append(uid)
+        sc1, sc2 = st.columns(2); scr1 = sc1.number_input("Điểm 1", 0, 100, 11); scr2 = sc2.number_input("Điểm 2", 0, 100, 9)
+        if st.button("Lưu KQ", type="primary"):
+            cid1 = c_map[s1]; cid2 = c_map[s2]
+            if cid1 == cid2: st.error("Trùng đội."); return
+            if ctype == "team" and (len(t1i)!=2 or len(t2i)!=2): st.error("Chọn đúng 2 VĐV/đội."); return
+            if ctype == "team": tp = (t1i[0], t1i[1], t2i[0], t2i[1])
+            add_match(t_id, cid1, cid2, int(scr1), int(scr2), st.session_state["user"]["id"], True, tp)
+            st.success("Lưu thành công."); st.rerun()
+    ui_tournament_results_view(t_id)
 
-    comps = get_competitors(t_id)
-    if not comps:
-        st.info("Chưa có cặp/đội.")
-        return
-
-    comp_map = {f"{c['id']} - {c['name']}": c["id"] for c in comps}
-    col1, col2 = st.columns(2)
-    with col1:
-        sel1 = st.selectbox("Cặp/Đội 1", list(comp_map.keys()), key=f"m_c1_{t_id}")
-        score1 = st.number_input("Point đội 1", min_value=0, max_value=100, value=11, step=1, key=f"m_s1_{t_id}")
-    with col2:
-        sel2 = st.selectbox("Cặp/Đội 2", list(comp_map.keys()), key=f"m_c2_{t_id}")
-        score2 = st.number_input("Point đội 2", min_value=0, max_value=100, value=9, step=1, key=f"m_s2_{t_id}")
-
-    if st.button("Ghi nhận kết quả (BTC xác nhận luôn)", key=f"m_add_{t_id}"):
-        c1 = comp_map[sel1]
-        c2 = comp_map[sel2]
-        if c1 == c2:
-            st.warning("Hai đội phải khác nhau.")
-        else:
-            reporter_id = st.session_state["user"]["id"] if "user" in st.session_state and st.session_state["user"] else None
-            add_match(t_id, c1, c2, int(score1), int(score2), reporter_id, auto_confirm=True)
-            st.success("Đã ghi nhận kết quả.")
-            st.rerun()
-
-    st.markdown("#### Danh sách trận đấu")
-    matches = get_matches(t_id)
-    if matches:
-        st.table([
-            {
-                "ID": m["id"],
-                "Đội 1": m["name1"],
-                "Đội 2": m["name2"],
-                "Tỉ số": f"{m['score1']} - {m['score2']}",
-            }
-            for m in matches
-        ])
+def ui_tournament_standings(t_id):
+    t = get_tournament_by_id(t_id); use_pools = bool(t["use_pools"]); adv = t["adv_per_pool"]; m_map = get_competitor_members_map(t_id)
+    st.markdown("### 🏆 Bảng xếp hạng")
+    if use_pools:
+        ps = compute_pool_standings(t_id)
+        if not ps: st.info("Chưa có dữ liệu."); return
+        for pn, lst in sorted(ps.items()):
+            st.markdown(f"**Bảng {pn}**")
+            q_ids = {item["id"] for item in lst[:int(adv)]} if adv else set()
+            rows = []
+            for i, s in enumerate(lst):
+                rows.append({"Hạng": i+1, "Tên": build_competitor_display_name(s["id"], m_map), "Thắng": s["wins"], "Hiệu số": s["diff"], "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}", "Note": "✅ Đi tiếp" if s["id"] in q_ids else ""})
+            st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
-        st.info("Chưa có trận đấu nào.")
-
-    st.markdown("#### Bảng xếp hạng hiện tại")
-    standings = compute_standings(t_id)
-    if standings:
-        st.table([
-            {
-                "Hạng": i + 1,
-                "Tên": s["name"],
-                "Trận thắng": s["wins"],
-                "Điểm ghi được": s["pts_for"],
-                "Điểm bị thua": s["pts_against"],
-                "Hiệu số": s["diff"],
-            }
-            for i, s in enumerate(standings)
-        ])
-    else:
-        st.info("Chưa đủ dữ liệu để xếp hạng.")
+        std = compute_standings(t_id)
+        if std:
+            rows = [{"Hạng": i+1, "Tên": build_competitor_display_name(s["id"], m_map), "Thắng": s["wins"], "Hiệu số": s["diff"], "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}"} for i, s in enumerate(std)]
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        else: st.info("Chưa có dữ liệu.")
 
 # ------------------ Main app ------------------ #
 
 def main():
-    st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide")
     init_db()
+    params = st.query_params; token = params.get("t"); token = token[0] if isinstance(token, list) else token
+    if st.session_state["user"] is None and token:
+        u = get_user_by_session_token(token)
+        if u: st.session_state["user"] = dict(u); st.session_state["login_token"] = token
 
-    if "user" not in st.session_state:
-        st.session_state["user"] = None
+    user = st.session_state["user"]
+    
+    # --- HEADER ---
+    c_logo, c_title, c_user = st.columns([0.8, 7, 2])
+    c_logo.markdown("<div style='font-size:2.5rem; text-align:center;'>🏓</div>", unsafe_allow_html=True)
+    c_title.markdown("<h1 style='margin:0; font-size: 1.8rem; padding-top:5px; color:#111827;'>HNX Pickleball Allstars</h1>", unsafe_allow_html=True)
+    if user: c_user.markdown(f"<div style='text-align:right; padding-top:15px; font-size:0.9rem;'>Hi, <b>{user['full_name']}</b></div>", unsafe_allow_html=True)
+    #st.markdown("---")
 
-    st.sidebar.title("HNX Pickleball Allstars")
-
-    # Hiển thị thông tin login / logout
-    if st.session_state["user"]:
-        u = st.session_state["user"]
-        tags = []
-        if u.get("is_admin"):
-            tags.append("Admin")
-        if u.get("is_btc"):
-            tags.append("BTC")
-        if not tags:
-            tags.append("Player")
-        role_str = ", ".join(tags)
-        st.sidebar.write(f"Xin chào, **{u['full_name']}** ({role_str})")
-        if st.sidebar.button("Đăng xuất"):
-            st.session_state["user"] = None
-            st.rerun()
+    # --- MENU CHÍNH ---
+    tabs_list = ["Trang chủ", "Bảng xếp hạng"]
+    if not user: tabs_list.append("Đăng nhập")
     else:
-        st.sidebar.write("Chưa đăng nhập.")
+        if user.get("is_admin") or user.get("is_btc"): tabs_list.extend(["Thành viên", "Giải đấu"])
+        tabs_list.append("Cá nhân")
 
-        st.sidebar.write("Chưa đăng nhập.")
+    # Bọc tabs trong class đặc biệt để CSS style "Pills"
+    st.markdown('<div class="main-menu-tabs">', unsafe_allow_html=True)
+    selected_tabs = st.tabs(tabs_list)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Xây menu theo trạng thái đăng nhập + vai trò
-    if st.session_state["user"] is None:
-        # Chưa đăng nhập
-        menu = ["Trang chủ", "Đăng nhập/Đăng ký", "Bảng HNPR"]
+    with selected_tabs[0]: ui_home()
+    with selected_tabs[1]: ui_hnpr_page()
+    
+    if not user:
+        with selected_tabs[2]: ui_login_register()
     else:
-        u = st.session_state["user"]
-        is_admin = bool(u.get("is_admin", 0))
-        is_btc = bool(u.get("is_btc", 0))
-
-        # Đã đăng nhập
-        menu = ["Trang chủ", "Bảng HNPR", "Trang cá nhân"]
-
-        # Admin hoặc BTC được thêm các menu quản lý
-        if is_admin or is_btc:
-            menu.insert(2, "Quản lý thành viên")
-            menu.insert(3, "Quản lý giải đấu")
-
-
-        # LƯU Ý: không cho hiện "Đăng nhập/Đăng ký" nữa khi đã logged in
-
-    choice = st.sidebar.radio("Menu", menu, index=0)
-
-    # Điều hướng theo menu
-    if choice == "Trang chủ":
-        ui_home()
-    elif choice == "Đăng nhập/Đăng ký":
-        ui_login_register()
-    elif choice == "Quản lý thành viên":
-        ui_member_management()
-    elif choice == "Bảng HNPR":
-        ui_hnpr_page()
-    elif choice == "Quản lý giải đấu":
-        ui_tournament_page()
-
-    elif choice == "Trang cá nhân":
-        ui_profile_page()
+        idx = 2
+        if user.get("is_admin") or user.get("is_btc"):
+            with selected_tabs[idx]: ui_member_management()
+            with selected_tabs[idx+1]: ui_tournament_page()
+            idx += 2
+        with selected_tabs[idx]: ui_profile_page()
 
 if __name__ == "__main__":
     main()
