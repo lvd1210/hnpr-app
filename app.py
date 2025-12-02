@@ -638,39 +638,99 @@ def compute_pool_standings(tournament_id):
 # ------------------ UI sections ------------------ #
 
 def ui_login_register():
-    st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>Đăng nhập / Đăng ký</h3>", unsafe_allow_html=True)
+    st.markdown(
+        "<h3 style='text-align: center; margin-bottom: 20px;'>Đăng nhập / Đăng ký</h3>",
+        unsafe_allow_html=True,
+    )
     col_center = st.columns([1, 2, 1])[1]
     with col_center:
         tab_login, tab_register = st.tabs(["Đăng nhập", "Đăng ký"])
+
+        # TAB ĐĂNG NHẬP
         with tab_login:
             st.write(" ")
-            username = st.text_input("Tên đăng nhập")
-            password = st.text_input("Mật khẩu", type="password")
-            if st.button("Đăng nhập", type="primary", use_container_width=True):
+            username = st.text_input(
+                "Tên đăng nhập",
+                key="login_username",
+            )
+            password = st.text_input(
+                "Mật khẩu",
+                type="password",
+                key="login_password",
+            )
+            if st.button(
+                "Đăng nhập",
+                type="primary",
+                use_container_width=True,
+                key="login_button",
+            ):
                 user, err = login(username, password)
-                if err: st.error(err)
+                if err:
+                    st.error(err)
                 else:
                     token = create_session_token(user["id"])
                     st.session_state["user"] = dict(user)
                     st.session_state["login_token"] = token
-                    st.query_params = {"t": token}
                     st.success(f"Xin chào {user['full_name']}!")
                     st.rerun()
+
+        # TAB ĐĂNG KÝ
         with tab_register:
             st.write(" ")
-            full_name = st.text_input("Họ tên")
-            age = st.number_input("Tuổi", min_value=5, max_value=100, value=30, step=1)
-            username_r = st.text_input("Tên đăng nhập mới")
-            password_r = st.text_input("Mật khẩu mới", type="password")
-            if st.button("Đăng ký tài khoản mới", use_container_width=True):
-                if not (full_name and username_r and password_r): st.warning("Nhập đủ thông tin")
+            full_name = st.text_input(
+                "Họ tên",
+                key="register_full_name",
+            )
+            age = st.number_input(
+                "Tuổi",
+                min_value=5,
+                max_value=100,
+                value=30,
+                step=1,
+                key="register_age",
+            )
+            username_r = st.text_input(
+                "Tên đăng nhập mới",
+                key="register_username",
+            )
+            password_r = st.text_input(
+                "Mật khẩu mới",
+                type="password",
+                key="register_password",
+            )
+            if st.button(
+                "Đăng ký tài khoản mới",
+                use_container_width=True,
+                key="register_button",
+            ):
+                if not (full_name and username_r and password_r):
+                    st.warning("Nhập đủ thông tin")
                 else:
-                    conn = get_conn(); cur = conn.cursor()
+                    conn = get_conn()
+                    cur = conn.cursor()
                     try:
-                        cur.execute("INSERT INTO users (username, password_hash, full_name, age, role, is_approved, created_at) VALUES (?, ?, ?, ?, 'player', 0, ?)", (username_r, hash_password(password_r), full_name, age, datetime.utcnow().isoformat()))
-                        conn.commit(); st.success("Đăng ký thành công, chờ duyệt.")
-                    except sqlite3.IntegrityError: st.error("Username đã tồn tại.")
-                    finally: conn.close()
+                        cur.execute(
+                            """
+                            INSERT INTO users (
+                                username, password_hash, full_name, age,
+                                role, is_approved, created_at
+                            )
+                            VALUES (?, ?, ?, ?, 'player', 0, ?)
+                            """,
+                            (
+                                username_r,
+                                hash_password(password_r),
+                                full_name,
+                                age,
+                                datetime.utcnow().isoformat(),
+                            ),
+                        )
+                        conn.commit()
+                        st.success("Đăng ký thành công, chờ duyệt.")
+                    except sqlite3.IntegrityError:
+                        st.error("Username đã tồn tại.")
+                    finally:
+                        conn.close()
 
 def ui_member_management():
     require_role(["admin", "btc"])
@@ -985,8 +1045,9 @@ def ui_hnpr_page():
         cols[0].write(i + 1)
         cols[1].write(player["full_name"])
 
-        up_key = f"btc_up_{uid}_{i}"
-        down_key = f"btc_down_{uid}_{i}"
+        # KEY phải khác hoàn toàn với trang BXH cá nhân
+        up_key = f"btc_up_hnpr_{uid}_{i}"
+        down_key = f"btc_down_hnpr_{uid}_{i}"
 
         if cols[2].button("⬆", key=up_key) and i > 0:
             order[i - 1], order[i] = order[i], order[i - 1]
@@ -1088,7 +1149,7 @@ def ui_profile_page():
         st.markdown("---")
         if st.button("🚪 Đăng xuất"):
             delete_session_token(st.session_state.get("login_token"))
-            st.session_state["user"] = None; st.session_state["login_token"] = None; st.query_params = {}; st.rerun()
+            st.session_state["user"] = None; st.session_state["login_token"] = None; st.rerun()
 
 def ui_tournament_page():
     require_role(["admin", "btc"])
@@ -1505,44 +1566,51 @@ def ui_tournament_standings(t_id):
 
 def main():
     init_db()
-    params = st.query_params; token = params.get("t"); token = token[0] if isinstance(token, list) else token
-    if st.session_state["user"] is None and token:
-        u = get_user_by_session_token(token)
-        if u: st.session_state["user"] = dict(u); st.session_state["login_token"] = token
 
+    # Không còn auto-login từ token trên URL, mỗi trình duyệt có session riêng
     user = st.session_state["user"]
     
     # --- HEADER ---
     c_logo, c_title, c_user = st.columns([0.8, 7, 2])
     c_logo.markdown("<div style='font-size:2.5rem; text-align:center;'>🏓</div>", unsafe_allow_html=True)
     c_title.markdown("<h1 style='margin:0; font-size: 1.8rem; padding-top:5px; color:#111827;'>HNX Pickleball Allstars</h1>", unsafe_allow_html=True)
-    if user: c_user.markdown(f"<div style='text-align:right; padding-top:15px; font-size:0.9rem;'>Hi, <b>{user['full_name']}</b></div>", unsafe_allow_html=True)
-    #st.markdown("---")
+    if user:
+        c_user.markdown(
+            f"<div style='text-align:right; padding-top:15px; font-size:0.9rem;'>Hi, <b>{user['full_name']}</b></div>",
+            unsafe_allow_html=True
+        )
 
     # --- MENU CHÍNH ---
-    tabs_list = ["Trang chủ", "Bảng xếp hạng"]
-    if not user: tabs_list.append("Đăng nhập")
+    tabs_list = ["Trang chủ", "Bảng HNPR"]
+    if not user:
+        tabs_list.append("Đăng nhập")
     else:
-        if user.get("is_admin") or user.get("is_btc"): tabs_list.extend(["Thành viên", "Giải đấu"])
+        if user.get("is_admin") or user.get("is_btc"):
+            tabs_list.extend(["Thành viên", "Giải đấu"])
         tabs_list.append("Cá nhân")
 
-    # Bọc tabs trong class đặc biệt để CSS style "Pills"
     st.markdown('<div class="main-menu-tabs">', unsafe_allow_html=True)
     selected_tabs = st.tabs(tabs_list)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    with selected_tabs[0]: ui_home()
-    with selected_tabs[1]: ui_hnpr_page()
-    
+    with selected_tabs[0]:
+        ui_home()
+    with selected_tabs[1]:
+        ui_hnpr_page()
+
     if not user:
-        with selected_tabs[2]: ui_login_register()
+        with selected_tabs[2]:
+            ui_login_register()
     else:
         idx = 2
         if user.get("is_admin") or user.get("is_btc"):
-            with selected_tabs[idx]: ui_member_management()
-            with selected_tabs[idx+1]: ui_tournament_page()
+            with selected_tabs[idx]:
+                ui_member_management()
+            with selected_tabs[idx + 1]:
+                ui_tournament_page()
             idx += 2
-        with selected_tabs[idx]: ui_profile_page()
-
+        with selected_tabs[idx]:
+            ui_profile_page()
+    
 if __name__ == "__main__":
     main()
