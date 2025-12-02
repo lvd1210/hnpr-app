@@ -1745,35 +1745,111 @@ def ui_tournament_page():
 
 def ui_tournament_list_page():
     st.subheader("🛠️ Quản lý giải đấu")
-    if "show_create_t" not in st.session_state: st.session_state["show_create_t"] = False
+    if "show_create_t" not in st.session_state:
+        st.session_state["show_create_t"] = False
+
     tournaments = get_tournaments()
     if tournaments and not st.session_state["show_create_t"]:
         st.markdown(f"**Danh sách giải ({len(tournaments)})**")
         cols = st.columns([0.05, 0.25, 0.15, 0.2, 0.1, 0.15, 0.1])
-        cols[0].markdown("**ID**"); cols[1].markdown("**Tên giải**"); cols[2].markdown("**Thể loại**"); cols[3].markdown("**Thời gian**"); cols[4].markdown("**Active**"); cols[5].markdown("**Thao tác**")
+        cols[0].markdown("**ID**")
+        cols[1].markdown("**Tên giải**")
+        cols[2].markdown("**Thể loại**")
+        cols[3].markdown("**Thời gian**")
+        cols[4].markdown("**Active**")
+        cols[5].markdown("**Thao tác**")
+
         st.markdown("---")
         for t in tournaments:
-            tid = t["id"]; ctype = t["competition_type"] if t["competition_type"] in ("pair", "team") else "pair"
+            tid = t["id"]
+            # competition_type có thể None
+            if "competition_type" in t.keys() and t["competition_type"] in ("pair", "team"):
+                ctype = t["competition_type"]
+            else:
+                ctype = "pair"
+
             c = st.columns([0.05, 0.25, 0.15, 0.2, 0.1, 0.15, 0.1])
-            c[0].write(tid); c[1].write(t["name"]); c[2].write("Cặp" if ctype == "pair" else "Đội"); c[3].write(f"{t['start_date'] or ''}"); c[4].markdown("✅" if t["is_active"] else "")
+            c[0].write(tid)
+            c[1].write(t["name"])
+            c[2].write("Cặp" if ctype == "pair" else "Đội")
+            c[3].write(f"{t['start_date'] or ''}")
+            c[4].markdown("✅" if t["is_active"] else "")
+
             with c[5]:
                 b1, b2, b3 = st.columns(3)
-                if b1.button("👁", key=f"v_{tid}"): st.session_state["tournament_view_mode"] = "detail"; st.session_state["selected_tournament_id"] = tid; st.rerun()
-                if b2.button("✏", key=f"e_{tid}"): st.session_state["editing_tournament_id"] = tid; st.session_state["show_create_t"] = True; st.rerun()
-                if b3.button("🗑", key=f"d_{tid}"): delete_tournament(tid); st.rerun()
+                if b1.button("👁", key=f"v_{tid}"):
+                    st.session_state["tournament_view_mode"] = "detail"
+                    st.session_state["selected_tournament_id"] = tid
+                    st.rerun()
+                if b2.button("✏", key=f"e_{tid}"):
+                    st.session_state["editing_tournament_id"] = tid
+                    st.session_state["show_create_t"] = True
+                    st.rerun()
+                if b3.button("🗑", key=f"d_{tid}"):
+                    delete_tournament(tid)
+                    st.rerun()
+
         st.markdown("---")
 
     if not st.session_state["show_create_t"]:
-        if st.button("➕ Thêm giải mới", type="primary"): st.session_state["show_create_t"] = True; st.rerun()
+        if st.button("➕ Thêm giải mới", type="primary"):
+            st.session_state["show_create_t"] = True
+            st.rerun()
         return
 
+    # ----- Form tạo / sửa giải -----
     with st.container():
         st.markdown("### 📝 Thông tin giải đấu")
         editing_id = st.session_state.get("editing_tournament_id")
+
         if editing_id:
             t = get_tournament_by_id(editing_id)
-            d_name = t["name"]; d_start = t["start_date"]; d_end = t["end_date"]; d_loc = t["location"]; d_nc = t["num_courts"] or 4; d_act = bool(t["is_active"]); d_ctype = t.get("competition_type", "pair"); d_pool = bool(t.get("use_pools", 1)); d_adv = t.get("adv_per_pool")
-        else: d_name = ""; d_start = ""; d_end = ""; d_loc = ""; d_nc = 4; d_act = False; d_ctype = "pair"; d_pool = True; d_adv = None
+            if t:
+                d_name = t["name"]
+                d_start = t["start_date"]
+                d_end = t["end_date"]
+                d_loc = t["location"]
+                d_nc = t["num_courts"] or 4
+                d_act = bool(t["is_active"])
+
+                # competition_type
+                if "competition_type" in t.keys() and t["competition_type"] in ("pair", "team"):
+                    d_ctype = t["competition_type"]
+                else:
+                    d_ctype = "pair"
+
+                # use_pools
+                if "use_pools" in t.keys():
+                    d_pool = bool(t["use_pools"])
+                else:
+                    d_pool = True
+
+                # adv_per_pool
+                if "adv_per_pool" in t.keys():
+                    d_adv = t["adv_per_pool"]
+                else:
+                    d_adv = None
+            else:
+                # fallback nếu không tìm thấy giải (hiếm)
+                d_name = ""
+                d_start = ""
+                d_end = ""
+                d_loc = ""
+                d_nc = 4
+                d_act = False
+                d_ctype = "pair"
+                d_pool = True
+                d_adv = None
+        else:
+            d_name = ""
+            d_start = ""
+            d_end = ""
+            d_loc = ""
+            d_nc = 4
+            d_act = False
+            d_ctype = "pair"
+            d_pool = True
+            d_adv = None
 
         with st.form("tournament_form"):
             col1, col2 = st.columns(2)
@@ -1785,17 +1861,43 @@ def ui_tournament_list_page():
                 c_d1, c_d2 = st.columns(2)
                 start_date = c_d1.text_input("Ngày bắt đầu", value=d_start or "")
                 end_date = c_d2.text_input("Ngày kết thúc", value=d_end or "")
-                ctype = st.radio("Thể loại", ["Theo cặp", "Theo đội"], index=0 if d_ctype == "pair" else 1, horizontal=True)
-                use_pools = st.checkbox("Có phân bảng", value=d_pool); is_active = st.checkbox("Đang diễn ra", value=d_act)
+                ctype = st.radio(
+                    "Thể loại",
+                    ["Theo cặp", "Theo đội"],
+                    index=0 if d_ctype == "pair" else 1,
+                    horizontal=True,
+                )
+                use_pools = st.checkbox("Có phân bảng", value=d_pool)
+                is_active = st.checkbox("Đang diễn ra", value=d_act)
+
             st.markdown("---")
             c_s, c_c = st.columns([1, 1])
+
             if c_s.form_submit_button("💾 Lưu", type="primary", use_container_width=True):
-                if not name: st.warning("Nhập tên giải")
+                if not name:
+                    st.warning("Nhập tên giải")
                 else:
-                    upsert_tournament(editing_id, name, start_date, end_date, location, num_courts, is_active, "pair" if ctype=="Theo cặp" else "team", use_pools, d_adv)
-                    st.success("Đã lưu."); st.session_state["editing_tournament_id"] = None; st.session_state["show_create_t"] = False; st.rerun()
+                    upsert_tournament(
+                        editing_id,
+                        name,
+                        start_date,
+                        end_date,
+                        location,
+                        num_courts,
+                        is_active,
+                        "pair" if ctype == "Theo cặp" else "team",
+                        use_pools,
+                        d_adv,
+                    )
+                    st.success("Đã lưu.")
+                    st.session_state["editing_tournament_id"] = None
+                    st.session_state["show_create_t"] = False
+                    st.rerun()
+
             if c_c.form_submit_button("Huỷ", use_container_width=True):
-                st.session_state["editing_tournament_id"] = None; st.session_state["show_create_t"] = False; st.rerun()
+                st.session_state["editing_tournament_id"] = None
+                st.session_state["show_create_t"] = False
+                st.rerun()
 
 def ui_tournament_detail_page(t_id: int):
     t = get_tournament_by_id(t_id)
