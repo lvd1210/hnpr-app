@@ -592,20 +592,104 @@ def delete_tournament(t_id):
     conn.commit()
     conn.close()
 
-def get_tournament_players(tournament_id):
+def get_tournament_players(tournament_id, approved_only: bool = True):
+    """
+    Lấy danh sách VĐV của giải.
+    Mặc định chỉ lấy VĐV đã được duyệt (status = 'approved').
+    """
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT tp.tournament_id, tp.user_id, tp.status, tp.group_name, u.full_name FROM tournament_players tp JOIN users u ON u.id = tp.user_id WHERE tp.tournament_id = ? ORDER BY u.full_name", (tournament_id,))
+    if approved_only:
+        cur.execute(
+            """
+            SELECT
+                tp.tournament_id,
+                tp.user_id,
+                tp.status,
+                tp.group_name,
+                u.full_name
+            FROM tournament_players tp
+            JOIN users u ON u.id = tp.user_id
+            WHERE tp.tournament_id = ? AND tp.status = 'approved'
+            ORDER BY u.full_name
+            """,
+            (tournament_id,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                tp.tournament_id,
+                tp.user_id,
+                tp.status,
+                tp.group_name,
+                u.full_name
+            FROM tournament_players tp
+            JOIN users u ON u.id = tp.user_id
+            WHERE tp.tournament_id = ?
+            ORDER BY u.full_name
+            """,
+            (tournament_id,),
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_tournament_pending_players(tournament_id):
+    """
+    Lấy danh sách VĐV đang chờ duyệt (status = 'pending').
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            tp.tournament_id,
+            tp.user_id,
+            tp.status,
+            tp.group_name,
+            u.full_name
+        FROM tournament_players tp
+        JOIN users u ON u.id = tp.user_id
+        WHERE tp.tournament_id = ? AND tp.status = 'pending'
+        ORDER BY u.full_name
+        """,
+        (tournament_id,),
+    )
     rows = cur.fetchall()
     conn.close()
     return rows
 
 def set_tournament_players(tournament_id, user_ids):
+    """
+    Cập nhật danh sách VĐV đã được duyệt (approved) cho giải.
+    - Xoá toàn bộ bản ghi status='approved' của giải
+    - Thêm (hoặc thay thế) bản ghi mới cho các user_id được chọn với status='approved'
+    - Nếu trước đó user đang 'pending' thì sẽ được chuyển thành 'approved' nhờ OR REPLACE.
+    """
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM tournament_players WHERE tournament_id = ?", (tournament_id,))
+
+    # Xoá toàn bộ VĐV đã duyệt của giải
+    cur.execute(
+        """
+        DELETE FROM tournament_players
+        WHERE tournament_id = ? AND status = 'approved'
+        """,
+        (tournament_id,),
+    )
+
+    # Chèn lại danh sách approved
     for uid in user_ids:
-        cur.execute("INSERT INTO tournament_players (tournament_id, user_id, status) VALUES (?, ?, 'approved')", (tournament_id, uid))
+        cur.execute(
+            """
+            INSERT OR REPLACE INTO tournament_players
+                (tournament_id, user_id, status)
+            VALUES (?, ?, 'approved')
+            """,
+            (tournament_id, uid),
+        )
+
     conn.commit()
     conn.close()
 
@@ -1233,39 +1317,153 @@ def ui_hnpr_page():
         st.rerun()
 
 def ui_home():
+    user = st.session_state.get("user")
+
     st.subheader("Các giải đang diễn ra 🔥")
     active_ts = get_active_tournaments()
-    if not active_ts: st.info("Chưa có giải đấu nào."); return
+    if not active_ts:
+        st.info("Chưa có giải đấu nào.")
+        return
+
     for t in active_ts:
         with st.container():
-            st.markdown(f"""
-            <div class="tournament-card">
-                <div class="t-title">{t['name']}</div>
-            """, unsafe_allow_html=True)
-            ctype = t["competition_type"] if "competition_type" in t.keys() and t["competition_type"] in ("pair", "team") else "pair"
+            # Thẻ giải đấu
+            st.markdown(
+                f"""
+                <div class="tournament-card">
+                    <div class="t-title">{t['name']}</div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # Kiểu thi đấu & phân bảng
+            ctype = (
+                t["competition_type"]
+                if "competition_type" in t.keys()
+                and t["competition_type"] in ("pair", "team")
+                else "pair"
+            )
             use_pools = bool(t["use_pools"]) if "use_pools" in t.keys() else False
-            st.markdown(f"""
-            <div class="info-grid">
-                <div class="info-item"><span class="info-label">📍 Địa điểm</span><span class="info-value">{t['location'] or 'N/A'}</span></div>
-                <div class="info-item"><span class="info-label">🗓️ Thời gian</span><span class="info-value">{t['start_date']} - {t['end_date']}</span></div>
-                <div class="info-item"><span class="info-label">🎾 Thể loại</span><span class="info-value">{'Theo cặp' if ctype == 'pair' else 'Theo đội'}</span></div>
-                <div class="info-item"><span class="info-label">📊 Phân bảng</span><span class="info-value">{'Có' if use_pools else 'Không'}</span></div>
-            </div></div>
-            """, unsafe_allow_html=True)
+
+            # Thông tin cơ bản
+            st.markdown(
+                f"""
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">📍 Địa điểm</span>
+                        <span class="info-value">{t['location'] or 'N/A'}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">🗓️ Thời gian</span>
+                        <span class="info-value">{t['start_date']} - {t['end_date']}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">🎾 Thể loại</span>
+                        <span class="info-value">{'Theo cặp' if ctype == 'pair' else 'Theo đội'}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">📊 Phân bảng</span>
+                        <span class="info-value">{'Có' if use_pools else 'Không'}</span>
+                    </div>
+                </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
             st.write("")
-            pair_team_label = "Chia cặp" if ctype == "pair" else "Chia đội"
-            tabs_list = ["Thành viên", "Phân nhóm", pair_team_label, "Phân bảng", "Lịch & Kết quả", "Xếp hạng"] if use_pools else ["Thành viên", "Phân nhóm", pair_team_label, "Lịch & Kết quả", "Xếp hạng"]
-            tab_objs = st.tabs(tabs_list)
-            with tab_objs[0]: ui_tournament_players_view(t["id"])
-            with tab_objs[1]: ui_tournament_groups_view(t["id"])
-            with tab_objs[2]: ui_tournament_pairs_teams_view(t["id"])
-            if use_pools:
-                with tab_objs[3]: ui_tournament_pools_view(t["id"])
-                with tab_objs[4]: ui_tournament_results_view(t["id"])
-                with tab_objs[5]: ui_tournament_standings(t["id"])
+
+            # ========= ĐĂNG KÝ THAM GIA GIẢI =========
+            if user:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT status
+                    FROM tournament_players
+                    WHERE tournament_id = ? AND user_id = ?
+                    """,
+                    (t["id"], user["id"]),
+                )
+                row = cur.fetchone()
+                conn.close()
+
+                if row:
+                    status = row["status"]
+                    if status == "approved":
+                        st.success("✅ Bạn đã được BTC duyệt tham gia giải này.")
+                    elif status == "pending":
+                        st.info("⏳ Bạn đã đăng ký, đang chờ BTC phê duyệt.")
+                    else:
+                        st.info(f"Trạng thái đăng ký hiện tại: {status}")
+                else:
+                    if st.button(
+                        "Đăng ký tham gia",
+                        type="primary",
+                        key=f"join_tour_{t['id']}",
+                    ):
+                        conn = get_conn()
+                        cur = conn.cursor()
+                        cur.execute(
+                            """
+                            INSERT OR IGNORE INTO tournament_players
+                                (tournament_id, user_id, status)
+                            VALUES (?, ?, 'pending')
+                            """,
+                            (t["id"], user["id"]),
+                        )
+                        conn.commit()
+                        conn.close()
+                        st.success("Đã gửi đăng ký, vui lòng chờ BTC phê duyệt.")
+                        st.rerun()
             else:
-                with tab_objs[3]: ui_tournament_results_view(t["id"])
-                with tab_objs[4]: ui_tournament_standings(t["id"])
+                st.caption("Đăng nhập để đăng ký tham gia giải.")
+
+            st.write("")
+
+            # ========= TABS CHỨC NĂNG CỦA GIẢI =========
+            pair_team_label = "Chia cặp" if ctype == "pair" else "Chia đội"
+
+            if use_pools:
+                tabs_list = [
+                    "Thành viên",
+                    "Phân nhóm",
+                    pair_team_label,
+                    "Phân bảng",
+                    "Lịch & Kết quả",
+                    "Xếp hạng",
+                ]
+            else:
+                tabs_list = [
+                    "Thành viên",
+                    "Phân nhóm",
+                    pair_team_label,
+                    "Lịch & Kết quả",
+                    "Xếp hạng",
+                ]
+
+            tab_objs = st.tabs(tabs_list)
+
+            with tab_objs[0]:
+                ui_tournament_players_view(t["id"])
+            with tab_objs[1]:
+                ui_tournament_groups_view(t["id"])
+            with tab_objs[2]:
+                ui_tournament_pairs_teams_view(t["id"])
+
+            if use_pools:
+                with tab_objs[3]:
+                    ui_tournament_pools_view(t["id"])
+                with tab_objs[4]:
+                    ui_tournament_results_view(t["id"])
+                with tab_objs[5]:
+                    ui_tournament_standings(t["id"])
+            else:
+                with tab_objs[3]:
+                    ui_tournament_results_view(t["id"])
+                with tab_objs[4]:
+                    ui_tournament_standings(t["id"])
+
         st.write("")
 
 def ui_profile_page():
@@ -1636,50 +1834,167 @@ def ui_tournament_detail_page(t_id: int):
         with tabs[4]: ui_tournament_standings(t_id)
 
 def ui_tournament_players_view(t_id):
-    current = get_tournament_players(t_id)
+    current = get_tournament_players(t_id)  # chỉ lấy approved
     if current:
         st.write(f"**Tham gia ({len(current)})**")
         cols = st.columns(4)
-        for i, p in enumerate(current): cols[i % 4].markdown(f"👤 {p['full_name']}")
-    else: st.info("Chưa có VĐV.")
+        for i, p in enumerate(current):
+            cols[i % 4].markdown(f"👤 {p['full_name']}")
+    else:
+        st.info("Chưa có VĐV đã được BTC duyệt.")
 
 def ui_tournament_players(t_id):
-    current = get_tournament_players(t_id)
-    st.markdown("#### 1. Thành viên tham gia")
-    if current:
-        st.success(f"Hiện có **{len(current)}** VĐV.")
-        with st.expander("Chi tiết"):
+    user = st.session_state.get("user")
+    role = user.get("role") if user else None
+    is_btc_admin = role in ("admin", "btc")
+
+    # ----- 1. Danh sách đã được duyệt -----
+    approved = get_tournament_players(t_id)  # chỉ approved
+    st.markdown("#### 1. Thành viên đã được duyệt tham gia")
+
+    if approved:
+        st.success(f"Hiện có **{len(approved)}** VĐV đã được duyệt.")
+        with st.expander("Xem danh sách chi tiết"):
             cols = st.columns(4)
-            for i, p in enumerate(current): cols[i % 4].write(f"- {p['full_name']}")
-    else: st.info("Chưa có thành viên.")
-    flag_key = f"show_add_players_{t_id}"
-    if flag_key not in st.session_state: st.session_state[flag_key] = False
-    if not st.session_state[flag_key]:
-        if st.button("➕ Thêm / Sửa", key=f"btn_add_{t_id}"): st.session_state[flag_key] = True; st.rerun()
+            for i, p in enumerate(approved):
+                cols[i % 4].write(f"- {p['full_name']}")
     else:
-        if st.button("Huỷ", key=f"btn_hide_{t_id}"): st.session_state[flag_key] = False; st.rerun()
-        st.write("Chọn thành viên:")
-        all_p = get_all_players(only_approved=True)
-        cur_ids = {p["user_id"] for p in current}; sel_ids = set(cur_ids)
-        with st.form(f"p_form_{t_id}"):
-            cols = st.columns(4)
-            for i, p in enumerate(all_p):
-                if cols[i%4].checkbox(f"{p['full_name']}", value=p["id"] in cur_ids, key=f"chk_{t_id}_{p['id']}"): sel_ids.add(p["id"])
-                else: sel_ids.discard(p["id"])
-            if st.form_submit_button("💾 Lưu", type="primary"): set_tournament_players(t_id, list(sel_ids)); st.session_state[flag_key] = False; st.rerun()
+        st.info("Chưa có VĐV nào được duyệt.")
+
+    # Chỉ BTC / admin mới được cấu hình danh sách approved
+    if is_btc_admin:
+        flag_key = f"show_add_players_{t_id}"
+        if flag_key not in st.session_state:
+            st.session_state[flag_key] = False
+
+        if not st.session_state[flag_key]:
+            if st.button("➕ Thêm / Sửa danh sách đã duyệt", key=f"btn_add_{t_id}"):
+                st.session_state[flag_key] = True
+                st.rerun()
+        else:
+            if st.button("⬅ Đóng phần Thêm / Sửa", key=f"btn_hide_{t_id}"):
+                st.session_state[flag_key] = False
+                st.rerun()
+
+            st.write("Chọn thành viên sẽ được coi là **đã duyệt tham gia**:")
+
+            all_p = get_all_players(only_approved=True)
+            current_ids = {p["user_id"] for p in approved}
+            selected_ids = set(current_ids)
+
+            with st.form(f"p_form_{t_id}"):
+                cols = st.columns(4)
+                for i, p in enumerate(all_p):
+                    checked = cols[i % 4].checkbox(
+                        p["full_name"],
+                        value=p["id"] in current_ids,
+                        key=f"chk_{t_id}_{p['id']}",
+                    )
+                    if checked:
+                        selected_ids.add(p["id"])
+                    else:
+                        selected_ids.discard(p["id"])
+
+                if st.form_submit_button("💾 Lưu danh sách đã duyệt", type="primary"):
+                    set_tournament_players(t_id, list(selected_ids))
+                    st.success("Đã cập nhật danh sách VĐV được duyệt.")
+                    st.session_state[flag_key] = False
+                    st.rerun()
+
+    st.markdown("---")
+
+    # ----- 2. Danh sách chờ duyệt -----
+    st.markdown("#### 2. Đăng ký chờ BTC phê duyệt")
+
+    pending = get_tournament_pending_players(t_id)
+
+    if not pending:
+        st.info("Hiện không có đăng ký nào đang chờ duyệt.")
+        return
+
+    if not is_btc_admin:
+        st.info("Chỉ BTC / Admin mới được duyệt danh sách này.")
+        # Vẫn hiển thị tên cho minh bạch
+        cols = st.columns(4)
+        for i, p in enumerate(pending):
+            cols[i % 4].write(f"- {p['full_name']}")
+        return
+
+    # BTC / admin: có quyền duyệt / từ chối
+    for p in pending:
+        uid = p["user_id"]
+        full_name = p["full_name"]
+
+        c1, c2, c3 = st.columns([0.6, 0.2, 0.2])
+        with c1:
+            st.write(f"👤 {full_name}")
+        with c2:
+            if st.button("✅ Duyệt", key=f"approve_{t_id}_{uid}"):
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    UPDATE tournament_players
+                    SET status = 'approved'
+                    WHERE tournament_id = ? AND user_id = ?
+                    """,
+                    (t_id, uid),
+                )
+                conn.commit()
+                conn.close()
+                st.success(f"Đã duyệt: {full_name}")
+                st.rerun()
+        with c3:
+            if st.button("❌ Từ chối", key=f"reject_{t_id}_{uid}"):
+                conn = get_conn()
+                cur = conn.cursor()
+                # Từ chối: xoá hẳn bản ghi pending
+                cur.execute(
+                    """
+                    DELETE FROM tournament_players
+                    WHERE tournament_id = ? AND user_id = ?
+                    """,
+                    (t_id, uid),
+                )
+                conn.commit()
+                conn.close()
+                st.warning(f"Đã từ chối: {full_name}")
+                st.rerun()
 
 def ui_tournament_groups_view(t_id):
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute("SELECT tp.user_id, tp.group_name, u.full_name FROM tournament_players tp JOIN users u ON u.id = tp.user_id WHERE tp.tournament_id = ? ORDER BY tp.group_name, u.full_name", (t_id,))
-    rows = cur.fetchall(); conn.close()
-    if not rows: st.info("Chưa phân nhóm."); return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            tp.user_id,
+            tp.group_name,
+            u.full_name
+        FROM tournament_players tp
+        JOIN users u ON u.id = tp.user_id
+        WHERE tp.tournament_id = ? AND tp.status = 'approved'
+        ORDER BY tp.group_name, u.full_name
+        """,
+        (t_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        st.info("Chưa phân nhóm (hoặc chưa có VĐV được duyệt).")
+        return
+
     g_map = {}
-    for r in rows: g_map.setdefault(r["group_name"] or "N/A", []).append(r["full_name"])
+    for r in rows:
+        g_name = r["group_name"] or "N/A"
+        g_map.setdefault(g_name, []).append(r["full_name"])
+
     cols = st.columns(len(g_map) if g_map else 1)
     for i, (g, names) in enumerate(sorted(g_map.items())):
-        with cols[i%4]:
+        with cols[i % len(cols)]:
             st.info(f"**Nhóm {g}** ({len(names)})")
-            for n in names: st.markdown(f"• {n}")
+            for n in names:
+                st.markdown(f"• {n}")
 
 def ui_tournament_groups(t_id):
     players = get_tournament_players(t_id)
@@ -1687,7 +2002,7 @@ def ui_tournament_groups(t_id):
         st.warning("Thêm thành viên trước.")
         return
 
-    st.markdown("#### 2. Cấu hình phân nhóm")
+    st.markdown("#### Cấu hình phân nhóm")
 
     # --- Cấu hình số nhóm, tên nhóm, số VĐV mỗi nhóm ---
     c1, c2 = st.columns([1, 2])
@@ -1875,7 +2190,7 @@ def ui_tournament_pairs_teams_view(t_id):
 
 def ui_tournament_pairs_teams(t_id):
     t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
-    st.markdown(f"#### 3. Tạo {'Cặp' if ctype == 'pair' else 'Đội'} thi đấu")
+    st.markdown(f"#### Tạo {'Cặp' if ctype == 'pair' else 'Đội'} thi đấu")
     if ctype == "pair":
         if st.button("⚡ Ghép cặp tự động", type="primary"): make_pairs_for_tournament(t_id); st.success("Xong."); st.rerun()
     else:
@@ -1900,7 +2215,7 @@ def ui_tournament_pools(t_id):
     t = get_tournament_by_id(t_id); comps = get_competitors(t_id)
     if not comps: st.warning("Tạo cặp/đội trước."); return
     adv = t["adv_per_pool"] or 1
-    st.markdown("#### 4. Phân bảng")
+    st.markdown("#### Phân bảng")
     c1, c2, c3 = st.columns([1, 1, 1])
     np = c1.number_input("Số bảng", 1, 16, 4)
     ap = c2.number_input("Đi tiếp/bảng", 1, 8, int(adv))
