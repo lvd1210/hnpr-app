@@ -337,11 +337,29 @@ def require_role(roles):
 
 # ------------------ Logic & Data Access ------------------ #
 
-def get_all_players(only_approved=True):
+def get_all_players(only_approved=True, include_admin=False):
     conn = get_conn()
     cur = conn.cursor()
-    if only_approved: cur.execute("SELECT * FROM users WHERE role = 'player' AND is_approved = 1 ORDER BY full_name")
-    else: cur.execute("SELECT * FROM users ORDER BY full_name")
+
+    if only_approved:
+        if include_admin:
+            # Lấy tất cả, kể cả admin
+            cur.execute(
+                "SELECT * FROM users WHERE is_approved = 1 ORDER BY full_name"
+            )
+        else:
+            # Thành viên = tất cả user được duyệt, trừ admin
+            cur.execute(
+                "SELECT * FROM users WHERE role != 'admin' AND is_approved = 1 ORDER BY full_name"
+            )
+    else:
+        if include_admin:
+            cur.execute("SELECT * FROM users ORDER BY full_name")
+        else:
+            cur.execute(
+                "SELECT * FROM users WHERE role != 'admin' ORDER BY full_name"
+            )
+
     rows = cur.fetchall()
     conn.close()
     return rows
