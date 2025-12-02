@@ -4,8 +4,6 @@ import hashlib
 from datetime import datetime
 import random
 import secrets
-import pandas as pd
-from streamlit_sortables import sort_items
 
 # ==========================================
 # 1. PAGE CONFIG & CSS STYLING (HIERARCHY UI)
