@@ -216,11 +216,44 @@ def init_db():
     if "team2_p2_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team2_p2_id INTEGER")
 
     conn.commit()
-    cur.execute("SELECT COUNT(*) AS c FROM users")
-    if cur.fetchone()["c"] == 0:
+
+    # Kiểm tra xem user 'admin' đã tồn tại chưa
+    cur.execute("SELECT * FROM users WHERE username = 'admin'")
+    admin_user = cur.fetchone()
+
+    if admin_user is None:
+        # Chưa có admin -> tạo mới
         password_hash = hash_password("admin")
-        cur.execute("INSERT INTO users (username, password_hash, full_name, age, role, is_approved, is_btc, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", ("admin", password_hash, "Administrator", 0, "admin", 1, 1, 1, datetime.utcnow().isoformat()))
+        cur.execute("""
+            INSERT INTO users (
+                username, password_hash, full_name, age,
+                role, is_approved, is_btc, is_admin, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "admin",
+            password_hash,
+            "Administrator",
+            0,
+            "admin",
+            1,   # is_approved
+            1,   # is_btc
+            1,   # is_admin
+            datetime.utcnow().isoformat()
+        ))
         conn.commit()
+    else:
+        # ĐÃ tồn tại user admin -> cập nhật quyền lại cho chắc
+        cur.execute("""
+            UPDATE users
+            SET role = 'admin',
+                is_admin = 1,
+                is_btc = 1,
+                is_approved = 1
+            WHERE username = 'admin'
+        """)
+        conn.commit()
+
     conn.close()
 
 # ------------------ Auth helpers ------------------ #
