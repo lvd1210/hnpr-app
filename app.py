@@ -10,7 +10,7 @@ import secrets
 # ==========================================
 st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide", page_icon="🏓")
 
-DB_PATH = "hnx_pickball_allstars1.db"
+DB_PATH = "hnx_pickball_allstars.db"
 
 st.markdown("""
 <style>
