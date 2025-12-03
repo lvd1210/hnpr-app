@@ -10,7 +10,7 @@ import secrets
 # ==========================================
 st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide", page_icon="🏓")
 
-DB_PATH = "hnx_pickball_allstars.db"
+DB_PATH = "hnx_pickball_allstars1.db"
 
 st.markdown("""
 <style>
@@ -184,36 +184,122 @@ def init_db():
     cur = conn.cursor()
 
     # Tables creation (kept same as logic)
-    cur.execute("""CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT NOT NULL)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, full_name TEXT NOT NULL, age INTEGER, role TEXT NOT NULL DEFAULT 'player', is_approved INTEGER NOT NULL DEFAULT 0, is_btc INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS tournaments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, start_date TEXT, end_date TEXT, location TEXT, num_courts INTEGER, is_active INTEGER NOT NULL DEFAULT 0)""")
-    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            age INTEGER,
+            role TEXT NOT NULL DEFAULT 'player',
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            is_btc INTEGER NOT NULL DEFAULT 0,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            gender TEXT,
+            unit TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tournaments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            start_date TEXT,
+            end_date TEXT,
+            location TEXT,
+            num_courts INTEGER,
+            is_active INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    # Bổ sung cột mới cho bảng tournaments nếu thiếu
     cur.execute("PRAGMA table_info(tournaments)")
     cols = [r[1] for r in cur.fetchall()]
-    if "competition_type" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN competition_type TEXT")
-    if "use_pools" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN use_pools INTEGER NOT NULL DEFAULT 1")
-    if "adv_per_pool" not in cols: cur.execute("ALTER TABLE tournaments ADD COLUMN adv_per_pool INTEGER")
+    if "competition_type" not in cols:
+        cur.execute("ALTER TABLE tournaments ADD COLUMN competition_type TEXT")
+    if "use_pools" not in cols:
+        cur.execute("ALTER TABLE tournaments ADD COLUMN use_pools INTEGER NOT NULL DEFAULT 1")
+    if "adv_per_pool" not in cols:
+        cur.execute("ALTER TABLE tournaments ADD COLUMN adv_per_pool INTEGER")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS tournament_players (tournament_id INTEGER NOT NULL, user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'approved', group_name TEXT, PRIMARY KEY (tournament_id, user_id))""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS personal_ranking_items (owner_id INTEGER NOT NULL, ranked_user_id INTEGER NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (owner_id, ranked_user_id))""")
-    # BXH chính thức do Ban tổ chức thiết lập
+    # BỔ SUNG CỘT gender, unit CHO BẢNG users NẾU DB CŨ CHƯA CÓ
+    cur.execute("PRAGMA table_info(users)")
+    ucols = [r[1] for r in cur.fetchall()]
+    if "gender" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+    if "unit" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN unit TEXT")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tournament_players (
+            tournament_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'approved',
+            group_name TEXT,
+            PRIMARY KEY (tournament_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS personal_ranking_items (
+            owner_id INTEGER NOT NULL,
+            ranked_user_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (owner_id, ranked_user_id)
+        )
+    """)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS btc_ranking_items (
             ranked_user_id INTEGER PRIMARY KEY,
             position      INTEGER NOT NULL
         )
     """)
-    
-    cur.execute("""CREATE TABLE IF NOT EXISTS competitors (id INTEGER PRIMARY KEY AUTOINCREMENT, tournament_id INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, pool_name TEXT)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS competitor_members (competitor_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (competitor_id, user_id))""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY AUTOINCREMENT, tournament_id INTEGER NOT NULL, competitor1_id INTEGER NOT NULL, competitor2_id INTEGER NOT NULL, score1 INTEGER NOT NULL, score2 INTEGER NOT NULL, winner_id INTEGER NOT NULL, reported_by INTEGER, confirmed_by INTEGER)""")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS competitors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            pool_name TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS competitor_members (
+            competitor_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            PRIMARY KEY (competitor_id, user_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id INTEGER NOT NULL,
+            competitor1_id INTEGER NOT NULL,
+            competitor2_id INTEGER NOT NULL,
+            score1 INTEGER NOT NULL,
+            score2 INTEGER NOT NULL,
+            winner_id INTEGER NOT NULL,
+            reported_by INTEGER,
+            confirmed_by INTEGER
+        )
+    """)
 
     cur.execute("PRAGMA table_info(matches)")
     mcols = [r[1] for r in cur.fetchall()]
-    if "team1_p1_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team1_p1_id INTEGER")
-    if "team1_p2_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team1_p2_id INTEGER")
-    if "team2_p1_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team2_p1_id INTEGER")
-    if "team2_p2_id" not in mcols: cur.execute("ALTER TABLE matches ADD COLUMN team2_p2_id INTEGER")
+    if "team1_p1_id" not in mcols:
+        cur.execute("ALTER TABLE matches ADD COLUMN team1_p1_id INTEGER")
+    if "team1_p2_id" not in mcols:
+        cur.execute("ALTER TABLE matches ADD COLUMN team1_p2_id INTEGER")
+    if "team2_p1_id" not in mcols:
+        cur.execute("ALTER TABLE matches ADD COLUMN team2_p1_id INTEGER")
+    if "team2_p2_id" not in mcols:
+        cur.execute("ALTER TABLE matches ADD COLUMN team2_p2_id INTEGER")
 
     conn.commit()
 
@@ -223,22 +309,25 @@ def init_db():
 
     if admin_user is None:
         # Chưa có admin -> tạo mới
-        password_hash = hash_password("admin")
+        password_hash = hash_password("is_admin")
         cur.execute("""
             INSERT INTO users (
                 username, password_hash, full_name, age,
-                role, is_approved, is_btc, is_admin, created_at
+                role, is_approved, is_btc, is_admin,
+                gender, unit, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            "admin",
+            "is_admin",
             password_hash,
             "Administrator",
             0,
-            "admin",
+            "is_admin",
             1,   # is_approved
             1,   # is_btc
             1,   # is_admin
+            "Nam",    # gender mặc định
+            "Ban tổ chức",  # unit mặc định
             datetime.utcnow().isoformat()
         ))
         conn.commit()
@@ -255,6 +344,7 @@ def init_db():
         conn.commit()
 
     conn.close()
+
 
 def hash_password(pw: str) -> str:
     return hashlib.sha256(pw.encode("utf-8")).hexdigest()
@@ -399,8 +489,8 @@ def require_role(roles):
     is_admin = bool(u.get("is_admin", 0))
     is_btc = bool(u.get("is_btc", 0))
     ok = False
-    if "admin" in roles and is_admin: ok = True
-    if "btc" in roles and (is_btc or is_admin): ok = True
+    if "is_admin" in roles and is_admin: ok = True
+    if "is_btc" in roles and (is_btc or is_admin): ok = True
     if "player" in roles: ok = True
     if not ok:
         st.error("⛔ Bạn không có quyền truy cập.")
@@ -409,26 +499,40 @@ def require_role(roles):
 # ------------------ Logic & Data Access ------------------ #
 
 def get_all_players(only_approved=True, include_admin=False):
+    """
+    Lấy danh sách người chơi:
+    - only_approved = True  => chỉ lấy user đã được duyệt
+    - include_admin = False => loại admin ra (is_admin = 0)
+    """
     conn = get_conn()
     cur = conn.cursor()
 
     if only_approved:
         if include_admin:
-            # Lấy tất cả, kể cả admin
+            # Tất cả user đã duyệt, kể cả admin
             cur.execute(
                 "SELECT * FROM users WHERE is_approved = 1 ORDER BY full_name"
             )
         else:
-            # Thành viên = tất cả user được duyệt, trừ admin
+            # Thành viên đã duyệt, TRỪ admin
             cur.execute(
-                "SELECT * FROM users WHERE role != 'admin' AND is_approved = 1 ORDER BY full_name"
+                """
+                SELECT * FROM users
+                WHERE is_approved = 1
+                  AND (is_admin IS NULL OR is_admin = 0)
+                ORDER BY full_name
+                """
             )
     else:
         if include_admin:
             cur.execute("SELECT * FROM users ORDER BY full_name")
         else:
             cur.execute(
-                "SELECT * FROM users WHERE role != 'admin' ORDER BY full_name"
+                """
+                SELECT * FROM users
+                WHERE (is_admin IS NULL OR is_admin = 0)
+                ORDER BY full_name
+                """
             )
 
     rows = cur.fetchall()
@@ -607,7 +711,8 @@ def get_tournament_players(tournament_id, approved_only: bool = True):
                 tp.user_id,
                 tp.status,
                 tp.group_name,
-                u.full_name
+                u.full_name,
+                u.gender
             FROM tournament_players tp
             JOIN users u ON u.id = tp.user_id
             WHERE tp.tournament_id = ? AND tp.status = 'approved'
@@ -623,7 +728,8 @@ def get_tournament_players(tournament_id, approved_only: bool = True):
                 tp.user_id,
                 tp.status,
                 tp.group_name,
-                u.full_name
+                u.full_name,
+                u.gender
             FROM tournament_players tp
             JOIN users u ON u.id = tp.user_id
             WHERE tp.tournament_id = ?
@@ -906,7 +1012,7 @@ def ui_login_register():
                         conn.close()
 
 def ui_member_management():
-    require_role(["admin", "btc"])
+    require_role(["is_admin", "is_btc"])
     st.subheader("👥 Quản lý thành viên")
 
     # =========================
@@ -925,11 +1031,18 @@ def ui_member_management():
                     step=1,
                     key="add_age",
                 )
+                gender_new = st.selectbox(
+                    "Giới tính",
+                    ["Nam", "Nữ"],
+                    index=0,
+                    key="add_gender",
+                )
             with col2:
                 username_new = st.text_input("Username đăng nhập", key="add_username")
                 password_new = st.text_input(
                     "Mật khẩu", type="password", key="add_password"
                 )
+                unit_new = st.text_input("Đơn vị", key="add_unit")
 
             col_role1, col_role2, col_role3 = st.columns(3)
             with col_role1:
@@ -945,39 +1058,38 @@ def ui_member_management():
 
             if submitted_add:
                 if not (full_name_new and username_new and password_new):
-                    st.warning("Vui lòng nhập đủ Họ tên, Username và Mật khẩu.")
+                    st.warning("Nhập đủ họ tên, username, mật khẩu.")
                 else:
-                    role_new = "admin" if is_admin_new else ("btc" if is_btc_new else "player")
-                    is_approved_val = 1 if auto_approve_new else 0
+                    conn = get_conn()
+                    cur = conn.cursor()
                     try:
-                        conn_add = get_conn()
-                        cur_add = conn_add.cursor()
-                        cur_add.execute(
-                            """
+                        cur.execute("""
                             INSERT INTO users (
                                 username, password_hash, full_name, age,
-                                role, is_approved, is_btc, is_admin, created_at
+                                role, is_approved, is_btc, is_admin,
+                                gender, unit, created_at
                             )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                username_new,
-                                hash_password(password_new),
-                                full_name_new,
-                                age_new,
-                                role_new,
-                                is_approved_val,
-                                1 if is_btc_new else 0,
-                                1 if is_admin_new else 0,
-                                datetime.utcnow().isoformat(),
-                            ),
-                        )
-                        conn_add.commit()
-                        conn_add.close()
-                        st.success("Đã thêm thành viên mới.")
-                        st.rerun()
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            username_new,
+                            hash_password(password_new),
+                            full_name_new,
+                            age_new,
+                            "player",
+                            1 if auto_approve_new else 0,
+                            1 if is_btc_new else 0,
+                            1 if is_admin_new else 0,
+                            gender_new,
+                            unit_new,
+                            datetime.utcnow().isoformat(),
+                        ))
+                        conn.commit()
+                        st.success("Thêm thành viên thành công.")
                     except sqlite3.IntegrityError:
-                        st.error("Username đã tồn tại, hãy chọn username khác.")
+                        st.error("Username đã tồn tại.")
+                    finally:
+                        conn.close()
+
 
     # =========================
     # 2. DANH SÁCH THÀNH VIÊN & PHÂN QUYỀN
@@ -1075,9 +1187,9 @@ def ui_member_management():
                 new_approved = 1 if uid in approve_flags and approve_flags[uid] else old_approved
 
                 if ni_admin:
-                    new_role = "admin"
+                    new_role = "is_admin"
                 elif ni_btc:
-                    new_role = "btc"
+                    new_role = "is_btc"
                 else:
                     new_role = "player"
 
@@ -1108,7 +1220,7 @@ def ui_btc_ranking_edit():
     Trang riêng để Ban tổ chức chỉnh BXH BTC
     - Có 4 nút: mũi tên đôi (±3 bậc), mũi tên đơn (±1 bậc)
     """
-    require_role(["admin", "btc"])
+    require_role(["is_admin", "is_btc"])
 
     st.markdown("### ✏️ Chỉnh sửa BXH do Ban tổ chức")
     st.caption(
@@ -1251,10 +1363,11 @@ def ui_hnpr_page():
     btc_rank = get_btc_ranking()
 
     user = st.session_state.get("user")
-    role = user.get("role") if user else None
-    is_admin = role == "admin"
-    is_btc = role == "btc"
+
+    is_admin = bool(user and user.get("is_admin"))
+    is_btc = bool(user and user.get("is_btc"))
     can_edit_btc = is_admin or is_btc
+
 
     # Nếu đang ở chế độ chỉnh sửa BXH BTC
     if can_edit_btc and st.session_state.get("btc_edit_mode", False):
@@ -1480,7 +1593,9 @@ def ui_profile_page():
 
     tab_info, tab_rank = st.tabs(["Thông tin cá nhân", "Bảng xếp hạng cá nhân"])
 
-    # ====== TAB BXH CÁ NHÂN ======
+    # ======================
+    # TAB 1: BXH CÁ NHÂN
+    # ======================
     with tab_rank:
         players = [p for p in get_all_players(only_approved=True) if p["id"] != owner_id]
         existing = get_personal_ranking(owner_id)
@@ -1533,58 +1648,94 @@ def ui_profile_page():
                     st.session_state.pop(f"personal_edit_order_{owner_id}", None)
                     st.rerun()
 
-    # ====== TAB THÔNG TIN CÁ NHÂN ======
+    # ======================
+    # TAB 2: THÔNG TIN CÁ NHÂN
+    # ======================
     with tab_info:
-        col_form, _ = st.columns([1, 1])
-        with col_form:
-            full_name = st.text_input(
-                "Họ tên",
-                value=user["full_name"],
-                key="profile_full_name",
-            )
-            age = st.number_input(
-                "Tuổi",
-                min_value=5,
-                max_value=100,
-                value=user.get("age") or 30,
-                step=1,
-                key="profile_age",
-            )
-            new_password = st.text_input(
-                "Đổi mật khẩu",
-                type="password",
-                key="profile_new_password",
-            )
+        st.markdown("### Thông tin cá nhân")
 
-            if st.button(
-                "💾 Lưu thông tin",
-                type="primary",
-                key="profile_save_info",
-            ):
-                conn = get_conn()
-                cur = conn.cursor()
-                if new_password:
-                    cur.execute(
-                        """
-                        UPDATE users
-                        SET full_name = ?, age = ?, password_hash = ?
-                        WHERE id = ?
-                        """,
-                        (full_name, age, hash_password(new_password), user["id"]),
-                    )
+        full_name = st.text_input("Họ và tên", value=user["full_name"])
+        age = st.number_input(
+            "Tuổi",
+            min_value=5,
+            max_value=100,
+            value=int(user["age"] or 30),
+            step=1,
+        )
+
+        # NEW: Giới tính + Đơn vị
+        current_gender = user.get("gender") or "Nam"
+        gender_index = 0 if current_gender == "Nam" else 1
+        gender = st.selectbox(
+            "Giới tính",
+            ["Nam", "Nữ"],
+            index=gender_index,
+        )
+        unit = st.text_input(
+            "Đơn vị",
+            value=user.get("unit") or "",
+        )
+
+        st.markdown("#### Đổi mật khẩu (không bắt buộc)")
+        current_pw = st.text_input("Mật khẩu hiện tại", type="password")
+        new_pw = st.text_input("Mật khẩu mới", type="password")
+        new_pw2 = st.text_input("Nhập lại mật khẩu mới", type="password")
+
+        if st.button("💾 Lưu thông tin cá nhân", type="primary"):
+            # Kiểm tra và cập nhật
+            conn = get_conn()
+            cur = conn.cursor()
+
+            if new_pw or new_pw2:
+                # Đổi mật khẩu
+                if not current_pw:
+                    st.error("Vui lòng nhập mật khẩu hiện tại.")
                 else:
-                    cur.execute(
-                        """
-                        UPDATE users
-                        SET full_name = ?, age = ?
-                        WHERE id = ?
-                        """,
-                        (full_name, age, user["id"]),
-                    )
+                    db_user = get_user_by_id(user["id"])
+                    if not verify_password(current_pw, db_user["password_hash"]):
+                        st.error("Mật khẩu hiện tại không đúng.")
+                    elif new_pw != new_pw2:
+                        st.error("Mật khẩu mới nhập lại không khớp.")
+                    else:
+                        cur.execute(
+                            """
+                            UPDATE users
+                            SET full_name = ?, age = ?, gender = ?, unit = ?, password_hash = ?
+                            WHERE id = ?
+                            """,
+                            (
+                                full_name,
+                                age,
+                                gender,
+                                unit,
+                                hash_password(new_pw),
+                                user["id"],
+                            ),
+                        )
+                        conn.commit()
+                        st.success("Đã cập nhật thông tin và mật khẩu.")
+                        st.session_state["user"] = dict(get_user_by_id(user["id"]))
+            else:
+                # Không đổi mật khẩu
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET full_name = ?, age = ?, gender = ?, unit = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        full_name,
+                        age,
+                        gender,
+                        unit,
+                        user["id"],
+                    ),
+                )
                 conn.commit()
-                conn.close()
-                st.session_state["user"] = dict(get_user_by_id(user["id"]))
                 st.success("Đã cập nhật thông tin.")
+                st.session_state["user"] = dict(get_user_by_id(user["id"]))
+
+            conn.close()
 
 def ui_personal_ranking_edit(owner_id: int):
     """
@@ -1594,8 +1745,8 @@ def ui_personal_ranking_edit(owner_id: int):
     require_login()
     user = st.session_state["user"]
     # Chỉ cho chính chủ hoặc admin chỉnh sửa
-    role = user.get("role")
-    if user["id"] != owner_id and role not in ("admin",):
+    is_admin = bool(user.get("is_admin"))
+    if user["id"] != owner_id and not is_admin:
         st.error("Bạn không có quyền chỉnh sửa BXH cá nhân này.")
         return
 
@@ -1737,7 +1888,7 @@ def ui_personal_ranking_edit(owner_id: int):
             st.rerun()
 
 def ui_tournament_page():
-    require_role(["admin", "btc"])
+    require_role(["is_admin", "is_btc"])
     if "tournament_view_mode" not in st.session_state: st.session_state["tournament_view_mode"] = "list"
     if st.session_state["tournament_view_mode"] == "detail" and st.session_state["selected_tournament_id"]:
         ui_tournament_detail_page(st.session_state["selected_tournament_id"])
@@ -1931,7 +2082,14 @@ def ui_tournament_detail_page(t_id: int):
 def ui_tournament_players_view(t_id):
     current = get_tournament_players(t_id)  # chỉ lấy approved
     if current:
-        st.write(f"**Tham gia ({len(current)})**")
+        total = len(current)
+        num_male = sum(1 for p in current if (p["gender"] or "") == "Nam")
+        num_female = sum(1 for p in current if (p["gender"] or "") == "Nữ")
+
+        st.markdown(
+            f"Hiện có **{total}** VĐV đã được duyệt tham gia "
+            f"(Nam: **{num_male}**, Nữ: **{num_female}**)."
+        )
         cols = st.columns(4)
         for i, p in enumerate(current):
             cols[i % 4].markdown(f"👤 {p['full_name']}")
@@ -1940,15 +2098,23 @@ def ui_tournament_players_view(t_id):
 
 def ui_tournament_players(t_id):
     user = st.session_state.get("user")
-    role = user.get("role") if user else None
-    is_btc_admin = role in ("admin", "btc")
+    is_btc_admin = bool(
+        user and (user.get("is_admin") or user.get("is_btc"))
+    )
 
     # ----- 1. Danh sách đã được duyệt -----
     approved = get_tournament_players(t_id)  # chỉ approved
     st.markdown("#### 1. Thành viên đã được duyệt tham gia")
 
     if approved:
-        st.success(f"Hiện có **{len(approved)}** VĐV đã được duyệt.")
+        total = len(approved)
+        num_male = sum(1 for p in approved if (p["gender"] or "") == "Nam")
+        num_female = sum(1 for p in approved if (p["gender"] or "") == "Nữ")
+
+        st.markdown(
+            f"Hiện có **{total}** VĐV đã được duyệt tham gia "
+            f"(Nam: **{num_male}**, Nữ: **{num_female}**)."
+        )
         with st.expander("Xem danh sách chi tiết"):
             cols = st.columns(4)
             for i, p in enumerate(approved):
