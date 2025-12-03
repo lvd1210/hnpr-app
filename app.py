@@ -309,7 +309,7 @@ def init_db():
 
     if admin_user is None:
         # Chưa có admin -> tạo mới
-        password_hash = hash_password("is_admin")
+        password_hash = hash_password("admin")
         cur.execute("""
             INSERT INTO users (
                 username, password_hash, full_name, age,
@@ -318,11 +318,11 @@ def init_db():
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            "is_admin",
+            "admin",
             password_hash,
             "Administrator",
             0,
-            "is_admin",
+            "admin",
             1,   # is_approved
             1,   # is_btc
             1,   # is_admin
