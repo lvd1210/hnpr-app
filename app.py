@@ -124,13 +124,14 @@ st.markdown("""
 
     .info-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         gap: 15px;
         background-color: #F9FAFB;
         padding: 12px;
         border-radius: 8px;
         border: 1px solid #f3f4f6;
     }
+
     .info-item { display: flex; flex-direction: column; }
     .info-label {
         font-size: 0.75rem; 
@@ -155,6 +156,81 @@ st.markdown("""
         border-color: var(--primary-color);
         color: var(--primary-color);
     }
+            
+    @media (max-width: 768px) {
+        /* Thu nhỏ padding, cho đỡ tốn chỗ */
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+
+        /* Card giải đấu gọn hơn */
+        .tournament-card {
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* Tabs chính: cho tràn ngang + chữ nhỏ đi */
+        .main-menu-tabs div[data-baseweb="tab-list"] {
+            overflow-x: auto;
+            white-space: nowrap;
+            padding: 4px 0 0 0 !important;
+            gap: 4px;
+        }
+
+        .main-menu-tabs div[data-baseweb="tab"] {
+            padding: 6px 10px !important;
+            font-size: 0.85rem !important;
+        }
+
+        /* Tabs con cũng nhỏ lại xíu */
+        div[data-baseweb="tab-list"] {
+            gap: 12px;
+        }
+        div[data-baseweb="tab"] {
+            font-size: 0.85rem;
+            padding-bottom: 6px;
+        }
+
+        /* Các list dùng st.columns(...) -> cho xếp dọc 100% width */
+        [data-testid="stHorizontalBlock"] {
+            flex-direction: column;
+        }
+        [data-testid="column"] {
+            width: 100% !important;
+            padding-right: 0 !important;
+        }
+
+        /* Dataframe bớt cao */
+        .css-1n76uvr, .css-1dp5vir {
+            max-height: 360px;
+        }
+    }
+            
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+/* Ép tất cả hàng dạng columns không bị xuống dòng */
+.no-wrap-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    white-space: nowrap;             /* Không cho xuống dòng trong text */
+}
+.no-wrap-row > div {
+    flex: 1 1 auto !important;       /* Các cột vẫn co giãn nhưng không wrap */
+    min-width: 0 !important;         /* Giúp co lại thay vì đẩy xuống hàng */
+}
+
+/* Nếu dùng trong danh sách thẻ (list item) thì thêm: */
+.list-item {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -2437,17 +2513,38 @@ def make_teams_for_tournament(t_id, num_teams):
     conn.commit(); conn.close()
 
 def ui_tournament_pairs_teams_view(t_id):
-    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
-    comps = get_competitors(t_id); m_map = get_competitor_members_map(t_id)
-    if not comps: st.info("Chưa có danh sách thi đấu."); return
+    t = get_tournament_by_id(t_id)
+    ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    comps = get_competitors(t_id)
+    m_map = get_competitor_members_map(t_id)
+
+    if not comps:
+        st.info("Chưa có danh sách thi đấu.")
+        return
+
+    # THI ĐẤU THEO ĐỘI -> hiển thị giống tab "Phân nhóm"
     if ctype == "team":
-        for c in comps:
-            mn = [m[1] for m in m_map.get(c["id"], [])]
-            with st.expander(f"🏅 {c['name']}"): st.write(", ".join(mn))
+        st.markdown("### 🏅 Danh sách các đội")
+
+        num_cols = 4 if len(comps) >= 4 else len(comps)
+        cols = st.columns(num_cols if num_cols > 0 else 1)
+
+        for i, c in enumerate(comps):
+            members = [m[1] for m in m_map.get(c["id"], [])]
+
+            with cols[i % num_cols]:
+                # Giống kiểu Nhóm A/B ở tab phân nhóm
+                st.info(f"**{c['name']}** ({len(members)} VĐV)")
+                for n in members:
+                    st.markdown(f"• {n}")
+
+    # THI ĐẤU THEO CẶP -> giữ nguyên layout lưới cũ
     else:
-        st.write("**Cặp đấu:**")
+        st.markdown("### 🎾 Danh sách cặp đấu")
         cols = st.columns(3)
-        for i, c in enumerate(comps): cols[i%3].success(f"🎾 {build_competitor_display_name(c['id'], m_map)}")
+        for i, c in enumerate(comps):
+            with cols[i % 3]:
+                st.success(f"{build_competitor_display_name(c['id'], m_map)}")
 
 def ui_tournament_pairs_teams(t_id):
     t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
