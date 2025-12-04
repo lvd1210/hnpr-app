@@ -10,7 +10,7 @@ import secrets
 # ==========================================
 st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide", page_icon="🏓")
 
-DB_PATH = "hnx_pickball_allstars.db"
+DB_PATH = "hnx_pickball.db"
 
 st.markdown("""
 <style>
@@ -206,7 +206,6 @@ st.markdown("""
             max-height: 360px;
         }
     }
-            
 </style>
 """, unsafe_allow_html=True)
 
@@ -452,79 +451,6 @@ def login(username, password):
     return user, None
 
 # ------------------ Session helpers ------------------ #
-
-def ranking_sortable_combined(order_ids, id_to_player, key_prefix: str):
-    """
-    Danh sách duy nhất, có:
-    - Drag & drop
-    - Nút ⬆ ⬇ ngay trên chính danh sách đó
-    """
-
-    # SESSION STATE -------------------------
-    skey = f"{key_prefix}_order"
-    if skey not in st.session_state:
-        st.session_state[skey] = list(order_ids)
-    else:
-        # Đồng bộ nếu có người mới
-        cur = st.session_state[skey]
-        for uid in order_ids:
-            if uid not in cur:
-                cur.append(uid)
-        valid = set(order_ids)
-        cur = [uid for uid in cur if uid in valid]
-        st.session_state[skey] = cur
-
-    working = st.session_state[skey]
-
-    # TẠO LABEL KÉO THẢ ---------------------
-    labels = []
-    uid_map = {}   # label -> uid
-
-    for idx, uid in enumerate(working, start=1):
-        p = id_to_player[uid]
-        label = f"{idx}. {p['full_name']}"
-        labels.append(label)
-        uid_map[label] = uid
-
-    st.caption("Kéo–thả để sắp xếp. Hoặc dùng nút ⬆ ⬇ để đổi nhanh.")
-
-    # KÉO THẢ -------------------------------
-    new_labels = sort_items(
-        labels,
-        direction="vertical",
-        key=f"{key_prefix}_sort"
-    )
-
-    # MAP NGƯỢC LẠI --------------------------------
-    new_order = [uid_map[lbl] for lbl in new_labels]
-
-    # CẬP NHẬT SESSION
-    st.session_state[skey] = new_order
-
-    # HIỂN THỊ DANH SÁCH + NÚT UP/DOWN ----------------
-    for i, uid in enumerate(new_order):
-        p = id_to_player[uid]
-        col1, col2, col3, col4 = st.columns([0.1, 0.7, 0.1, 0.1])
-        with col1:
-            st.write(f"{i+1}.")
-        with col2:
-            st.write(p["full_name"])
-
-        # NÚT UP
-        with col3:
-            if st.button("⬆", key=f"{key_prefix}_up_{uid}", help="Đẩy lên") and i > 0:
-                new_order[i-1], new_order[i] = new_order[i], new_order[i-1]
-                st.session_state[skey] = new_order
-                st.rerun()
-
-        # NÚT DOWN
-        with col4:
-            if st.button("⬇", key=f"{key_prefix}_down_{uid}", help="Đẩy xuống") and i < len(new_order)-1:
-                new_order[i+1], new_order[i] = new_order[i], new_order[i+1]
-                st.session_state[skey] = new_order
-                st.rerun()
-
-    return new_order
 
 def create_session_token(user_id: int) -> str:
     token = secrets.token_hex(16)
@@ -1436,74 +1362,28 @@ def ui_btc_ranking_edit():
 
 def ui_hnpr_page():
     hnpr = compute_hnpr()
-    btc_rank = get_btc_ranking()
 
-    user = st.session_state.get("user")
-
-    is_admin = bool(user and user.get("is_admin"))
-    is_btc = bool(user and user.get("is_btc"))
-    can_edit_btc = is_admin or is_btc
-
-
-    # Nếu đang ở chế độ chỉnh sửa BXH BTC
-    if can_edit_btc and st.session_state.get("btc_edit_mode", False):
-        ui_btc_ranking_edit()
+    st.markdown("#### BXH HNPR (do thành viên bình chọn)")
+    if not hnpr:
+        st.info("Chưa có đủ dữ liệu để tính HNPR.")
         return
 
-    col_left, col_right = st.columns(2)
-
-    # HNPR
-    with col_left:
-        st.markdown("#### BXH HNPR (do thành viên bình chọn)")
-        if not hnpr:
-            st.info("Chưa có đủ dữ liệu để tính HNPR.")
-        else:
-            rows = []
-            for r in hnpr:
-                rows.append(
-                    {
-                        "Thứ hạng": r["rank"],
-                        "Tên VĐV": r["full_name"],
-                        "HNPR (vị trí TB)": round(r["avg_pos"], 2),
-                        "Số phiếu": r["vote_count"],
-                    }
-                )
-            st.dataframe(
-                rows,
-                hide_index=True,
-                use_container_width=True,
-                height=500,
-            )
-
-    # BXH BTC
-    with col_right:
-        st.markdown("#### BXH do Ban tổ chức thiết lập")
-        if not btc_rank:
-            st.info("Chưa có BXH BTC.")
-        else:
-            rows = []
-            for r in btc_rank:
-                rows.append(
-                    {
-                        "Thứ hạng": r["position"],
-                        "Tên VĐV": r["full_name"],
-                    }
-                )
-            st.dataframe(
-                rows,
-                hide_index=True,
-                use_container_width=True,
-                height=500,
-            )
-
-    if not can_edit_btc:
-        return
-
-    st.markdown("---")
-    if st.button("✏️ Quản lý BXH Ban Tổ chức", type="primary", key="btc_edit_btn"):
-        st.session_state["btc_edit_mode"] = True
-        st.session_state.pop("btc_edit_order", None)
-        st.rerun()
+    rows = []
+    for r in hnpr:
+        rows.append(
+            {
+                "Thứ hạng": r["rank"],
+                "Tên VĐV": r["full_name"],
+                "HNPR (vị trí TB)": round(r["avg_pos"], 2),
+                "Số phiếu": r["vote_count"],
+            }
+        )
+    st.dataframe(
+        rows,
+        hide_index=True,
+        use_container_width=True,
+        height=500,
+    )
 
 def ui_home():
     user = st.session_state.get("user")
@@ -2334,144 +2214,263 @@ def ui_tournament_groups_view(t_id):
                 st.markdown(f"• {n}")
 
 def ui_tournament_groups(t_id):
+    ui_tournament_groups_view(t_id)
     players = get_tournament_players(t_id)
     if not players:
-        st.warning("Thêm thành viên trước.")
+        st.warning("Chưa có VĐV đã được duyệt để phân nhóm.")
         return
 
-    st.markdown("#### Cấu hình phân nhóm")
+    # ==== 2. Khu vực cấu hình trong 1 collapse ====
+    with st.expander("⚙️ Cấu hình / chỉnh sửa phân nhóm", expanded=False):
+        st.markdown("#### Cấu hình phân nhóm")
 
-    # --- Cấu hình số nhóm, tên nhóm, số VĐV mỗi nhóm ---
-    c1, c2 = st.columns([1, 2])
-    num = c1.number_input("Số nhóm", 1, 8, 4, key=f"ng_{t_id}")
-    g_defs = []
-    for i in range(int(num)):
-        c_a, c_b = st.columns([1, 1])
-        gn = c_a.text_input(f"Tên {i+1}", chr(ord('A') + i), key=f"gn_{t_id}_{i}")
-        gs = c_b.number_input(
-            f"Số lượng thành viên nhóm {gn}",
-            1,
-            len(players),
-            max(1, len(players) // int(num)),
-            key=f"gs_{t_id}_{i}",
-        )
-        g_defs.append((gn, int(gs)))
-
-    # --- Chọn nguồn xếp hạng để phân nhóm ---
-    st.markdown("##### Nguồn xếp hạng dùng để phân nhóm tự động")
-    ranking_source = st.radio(
-        "",
-        ["HNPR (BXH cá nhân)", "BXH BTC (Ban tổ chức)"],
-        index=0,
-        horizontal=True,
-        key=f"rank_source_{t_id}",
-    )
-
-    c_x, c_y = st.columns(2)
-
-    # Nút phân nhóm tự động
-    if c_x.button("⚡ Phân nhóm tự động"):
-        # ====== KIỂM TRA CẤU HÌNH NHÓM (ĐỐI XỨNG + TỔNG) ======
-        total_players = len(players)
-        sizes = [size for _, size in g_defs]
-        total_cfg = sum(sizes)
-
-        # 1) Tổng số VĐV trong các nhóm phải đúng với tổng tham gia
-        if total_cfg != total_players:
-            st.error(
-                f"Tổng số VĐV trong cấu hình nhóm là {total_cfg}, "
-                f"nhưng tổng số thành viên tham gia là {total_players}. "
-                "Vui lòng điều chỉnh lại số lượng từng nhóm cho khớp."
+        # Cấu hình số nhóm + số lượng (phục vụ cho chế độ tự động)
+        c1, c2 = st.columns([1, 2])
+        num = c1.number_input("Số nhóm", 1, 8, 4, key=f"ng_{t_id}")
+        g_defs = []
+        for i in range(int(num)):
+            c_a, c_b = st.columns([1, 1])
+            gn = c_a.text_input(
+                f"Tên nhóm {i+1}",
+                chr(ord("A") + i),
+                key=f"gn_{t_id}_{i}",
             )
-            return
+            gs = c_b.number_input(
+                f"Số lượng thành viên nhóm {gn}",
+                1,
+                len(players),
+                max(1, len(players) // int(num)),
+                key=f"gs_{t_id}_{i}",
+            )
+            g_defs.append((gn, int(gs)))
 
-        # 2) Đối xứng: Nhóm 1 = Nhóm N, Nhóm 2 = Nhóm N-1, ...
-        n = len(sizes)
-        for i in range(n // 2):
-            left = sizes[i]
-            right = sizes[n - 1 - i]
-            if left != right:
-                st.error(
-                    f"Số lượng Nhóm {i+1} ({left}) phải bằng Nhóm {n - i} ({right}). "
-                    "Vui lòng điều chỉnh lại cho đối xứng."
+        mode = st.radio(
+            "##### Cách phân nhóm",
+            ["Phân nhóm tự động (theo HNPR)", "Phân nhóm bằng tay"],
+            index=0,
+            horizontal=True,
+            key=f"group_mode_{t_id}",
+        )
+
+        # ====== MODE 1: TỰ ĐỘNG THEO HNPR ======
+        if mode.startswith("Phân nhóm tự động"):
+            c_x, _ = st.columns(2)
+
+            if c_x.button("⚡ Phân nhóm tự động", key=f"auto_group_{t_id}"):
+                total_players = len(players)
+                sizes = [size for _, size in g_defs]
+                total_cfg = sum(sizes)
+
+                # 1) Tổng số phải khớp
+                if total_cfg != total_players:
+                    st.error(
+                        f"Tổng số VĐV trong cấu hình nhóm là {total_cfg}, "
+                        f"nhưng tổng số thành viên tham gia là {total_players}. "
+                        "Vui lòng điều chỉnh lại số lượng từng nhóm cho khớp."
+                    )
+                    return
+
+                # 2) Đối xứng: Nhóm 1 = Nhóm N, Nhóm 2 = Nhóm N-1, ...
+                n = len(sizes)
+                for i in range(n // 2):
+                    left = sizes[i]
+                    right = sizes[n - 1 - i]
+                    if left != right:
+                        st.error(
+                            f"Số lượng Nhóm {i+1} ({left}) phải bằng Nhóm {n - i} ({right}). "
+                            "Vui lòng điều chỉnh lại cho đối xứng."
+                        )
+                        return
+
+                # Danh sách VĐV theo thứ tự HNPR (mạnh -> yếu)
+                player_ids = [p["user_id"] for p in players]
+                hnpr = compute_hnpr()
+                order_ids = []
+                if hnpr:
+                    order_ids = [
+                        r["user_id"] for r in hnpr if r["user_id"] in player_ids
+                    ]
+
+                # Nếu chưa có HNPR -> ABC
+                if not order_ids:
+                    players_sorted_alpha = sorted(
+                        players, key=lambda p: p["full_name"]
+                    )
+                    order_ids = [p["user_id"] for p in players_sorted_alpha]
+
+                rank_map = {uid: idx for idx, uid in enumerate(order_ids)}
+                players_sorted = sorted(
+                    players,
+                    key=lambda p: rank_map.get(p["user_id"], 9999),
                 )
-                return
-        # Trung tâm (n lẻ) không cần bằng ai, chỉ cần tổng đúng là được.
 
-        # ====== PHÂN NHÓM SAU KHI CẤU HÌNH HỢP LỆ ======
-        player_ids = [p["user_id"] for p in players]
-        order_ids = []
+                # Gán vào các nhóm theo cấu hình
+                assigned = {}
+                idx = 0
+                for name, size in g_defs:
+                    for _ in range(size):
+                        if idx >= len(players_sorted):
+                            break
+                        assigned[players_sorted[idx]["user_id"]] = name
+                        idx += 1
 
-        # Ưu tiên dùng BXH BTC nếu được chọn
-        if ranking_source.startswith("BXH BTC"):
-            btc_rank = get_btc_ranking()
-            if btc_rank:
-                order_ids = [
-                    r["ranked_user_id"]
-                    for r in btc_rank
-                    if r["ranked_user_id"] in player_ids
-                ]
+                conn = get_conn()
+                cur = conn.cursor()
+                for uid, gn in assigned.items():
+                    cur.execute(
+                        "UPDATE tournament_players SET group_name = ? "
+                        "WHERE tournament_id = ? AND user_id = ?",
+                        (gn, t_id, uid),
+                    )
+                conn.commit()
+                conn.close()
+                st.success("Đã phân nhóm tự động theo HNPR/ABC.")
+                st.rerun()
 
-        # Nếu không có BTC hoặc không phù hợp -> fallback sang HNPR
-        if not order_ids:
-            hnpr = compute_hnpr()
-            if hnpr:
-                order_ids = [
-                    r["user_id"]
-                    for r in hnpr
-                    if r["user_id"] in player_ids
-                ]
-
-        # Nếu vẫn không có -> fallback ABC
-        if not order_ids:
-            players_sorted_alpha = sorted(players, key=lambda p: p["full_name"])
-            order_ids = [p["user_id"] for p in players_sorted_alpha]
-
-        # rank_map: user_id -> thứ tự (càng nhỏ càng mạnh)
-        rank_map = {uid: idx for idx, uid in enumerate(order_ids)}
-
-        # Sắp xếp danh sách VĐV theo thứ tự rank_map
-        players_sorted = sorted(
-            players,
-            key=lambda p: rank_map.get(p["user_id"], 9999),
-        )
-
-        # Gán vào các nhóm theo cấu hình g_defs
-        assigned = {}
-        idx = 0
-        for name, size in g_defs:
-            for _ in range(size):
-                if idx >= len(players_sorted):
-                    break
-                assigned[players_sorted[idx]["user_id"]] = name
-                idx += 1
-
-        conn = get_conn()
-        cur = conn.cursor()
-        for uid, gn in assigned.items():
-            cur.execute(
-                "UPDATE tournament_players SET group_name = ? "
-                "WHERE tournament_id = ? AND user_id = ?",
-                (gn, t_id, uid),
+        # ====== MODE 2: PHÂN NHÓM BẰNG TAY (RADIO, SẮP THEO HNPR) ======
+        else:
+            st.caption(
+                "Chọn nhóm cho từng VĐV. Mỗi VĐV phải thuộc **đúng 1 nhóm**. "
+                "Hệ thống sẽ kiểm tra nguyên tắc đối xứng (Nhóm 1 = Nhóm N, Nhóm 2 = Nhóm N-1, ...)."
             )
-        conn.commit()
-        conn.close()
-        st.success("Đã phân nhóm.")
-        st.rerun()
 
-    # Nút xoá phân nhóm
-    if c_y.button("🗑 Xóa phân nhóm"):
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE tournament_players SET group_name = NULL WHERE tournament_id = ?",
-            (t_id,),
-        )
-        conn.commit()
-        conn.close()
-        st.rerun()
+            # Map group hiện tại từ DB
+            current_group_by_user = {
+                p["user_id"]: (p["group_name"] or "") for p in players
+            }
 
-    ui_tournament_groups_view(t_id)
+            # Sắp xếp danh sách VĐV theo HNPR (nếu có) rồi tới ABC
+            hnpr = compute_hnpr()
+            rank_map = {r["user_id"]: idx for idx, r in enumerate(hnpr)}
+            players_sorted = sorted(
+                players,
+                key=lambda p: (rank_map.get(p["user_id"], 9999), p["full_name"]),
+            )
+
+            group_names = [gn for gn, _ in g_defs]
+            options = ["(Chưa phân)"] + group_names
+
+            selection_by_user = {}
+
+            with st.form(f"manual_group_form_{t_id}"):
+                for p in players_sorted:
+                    uid = p["user_id"]
+                    full_name = p["full_name"]
+                    current_group = current_group_by_user.get(uid, "")
+
+                    # Tính index của radio
+                    if current_group in group_names:
+                        index = options.index(current_group)
+                    else:
+                        index = 0  # Chưa phân
+
+                    col_left, col_right = st.columns([0.5, 0.5])
+
+                    with col_left:
+                        # Tên VĐV – bọc flex để căn giữa theo chiều dọc
+                        st.markdown(
+                            f"""
+                            <div style='display:flex; align-items:center; gap:8px; height:38px;'>
+                                <span style='font-size:20px;'>👤</span>
+                                <span style='font-size:15px;'>{full_name}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_right:
+                        sel = st.radio(
+                            "",
+                            options,
+                            index=index,
+                            key=f"grp_{t_id}_{uid}",
+                            label_visibility="collapsed",
+                            horizontal=True,
+                        )
+                        selection_by_user[uid] = (
+                            sel if sel != "(Chưa phân)" else None
+                        )
+
+                submitted = st.form_submit_button(
+                    "💾 Lưu phân nhóm bằng tay",
+                    type="primary",
+                )
+
+                if submitted:
+                    errors = []
+                    final_group = {}
+
+                    # 1) Kiểm tra mỗi VĐV có đúng 1 nhóm
+                    for p in players_sorted:
+                        uid = p["user_id"]
+                        sel = selection_by_user.get(uid)
+
+                        if not sel:
+                            errors.append(
+                                f"- {p['full_name']} chưa được phân vào nhóm nào."
+                            )
+                        else:
+                            final_group[uid] = sel
+
+                    if errors:
+                        st.error("Có lỗi trong phân nhóm, vui lòng kiểm tra lại:")
+                        for e in errors:
+                            st.write(e)
+                    else:
+                        # 2) Kiểm tra nguyên tắc đối xứng số lượng
+                        count_by_group = {gn: 0 for gn in group_names}
+                        for gn in final_group.values():
+                            if gn in count_by_group:
+                                count_by_group[gn] += 1
+
+                        sym_errors = []
+                        n = len(group_names)
+                        for i in range(n // 2):
+                            g_left = group_names[i]
+                            g_right = group_names[n - 1 - i]
+                            c_left = count_by_group.get(g_left, 0)
+                            c_right = count_by_group.get(g_right, 0)
+                            if c_left != c_right:
+                                sym_errors.append(
+                                    f"- Nhóm {g_left} có {c_left} VĐV, "
+                                    f"nhưng Nhóm {g_right} có {c_right} VĐV. "
+                                    "Hai nhóm đối xứng phải có cùng số VĐV."
+                                )
+
+                        if sym_errors:
+                            st.error(
+                                "Phân nhóm chưa đúng nguyên tắc đối xứng, "
+                                "vui lòng điều chỉnh lại:"
+                            )
+                            for e in sym_errors:
+                                st.write(e)
+                        else:
+                            # 3) Hợp lệ -> cập nhật DB
+                            conn = get_conn()
+                            cur = conn.cursor()
+                            for uid, gn in final_group.items():
+                                cur.execute(
+                                    "UPDATE tournament_players SET group_name = ? "
+                                    "WHERE tournament_id = ? AND user_id = ?",
+                                    (gn, t_id, uid),
+                                )
+                            conn.commit()
+                            conn.close()
+                            st.success("Đã cập nhật phân nhóm bằng tay.")
+                            st.rerun()
+
+        # Nút xoá phân nhóm dùng chung cho cả 2 mode
+        if st.button("🗑 Xóa toàn bộ phân nhóm", key=f"clear_groups_{t_id}"):
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE tournament_players SET group_name = NULL WHERE tournament_id = ?",
+                (t_id,),
+            )
+            conn.commit()
+            conn.close()
+            st.success("Đã xoá toàn bộ phân nhóm.")
+            st.rerun()
 
 def make_pairs_for_tournament(t_id):
     players = get_tournament_players(t_id)
@@ -2665,7 +2664,6 @@ def main():
 
     user = st.session_state["user"]
 
-    # --- HEADER ---
     c_logo, c_title, c_user = st.columns([0.8, 7, 2])
 
     c_logo.markdown(
@@ -2678,7 +2676,6 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Góc phải: Hi username + Logout
     if user:
         with c_user:
             c1, c2 = st.columns([0.5, 0.5])
@@ -2694,7 +2691,6 @@ def main():
     else:
         c_user.write("")
 
-    # --- MENU CHÍNH ---
     tabs_list = ["Trang chủ", "Bảng xếp hạng"]
 
     if not user:
@@ -2708,7 +2704,6 @@ def main():
     selected_tabs = st.tabs(tabs_list)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- TABS RENDER ---
     with selected_tabs[0]:
         ui_home()
 
@@ -2729,6 +2724,6 @@ def main():
 
         with selected_tabs[idx]:
             ui_profile_page()
-    
+
 if __name__ == "__main__":
     main()
