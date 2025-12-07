@@ -10,7 +10,7 @@ import secrets
 # ==========================================
 st.set_page_config(page_title="HNX Pickleball Allstars", layout="wide", page_icon="🏓")
 
-DB_PATH = "hnx_pickball.db"
+DB_PATH = "hnx_pickball1.db"
 
 st.markdown("""
 <style>
@@ -2473,43 +2473,211 @@ def ui_tournament_groups(t_id):
             st.rerun()
 
 def make_pairs_for_tournament(t_id):
+    """
+    Ghép cặp dựa trên phân nhóm:
+    - Nhặt ngẫu nhiên 2 thành viên ở 2 nhóm đối xứng (A–D, B–C, ...)
+    - Nếu số nhóm lẻ: nhóm giữa ghép nội bộ ngẫu nhiên.
+    - Cảnh báo nếu còn VĐV không được ghép (do lệch số lượng).
+    - Nếu không có group nào: fallback ghép theo HNPR (top/bottom) + cảnh báo nếu lẻ.
+    """
     players = get_tournament_players(t_id)
-    if len(players) < 2: st.warning("Cần >= 2 VĐV."); return
-    g_map = {}
-    for p in players: g_map.setdefault(p["group_name"] or "", []).append(p)
-    groups = sorted(g_map.keys(), key=lambda x: (x == "", x))
+    if len(players) < 2:
+        st.warning("Cần tối thiểu 2 VĐV để ghép cặp.")
+        return
+
+    # Gom VĐV theo group_name
+    group_map = {}
+    for p in players:
+        gname = p["group_name"] or ""
+        group_map.setdefault(gname, []).append(p)
+
+    # Các nhóm có tên (A, B, C, ...) dùng để ghép đối xứng
+    named_groups = sorted([g for g in group_map.keys() if g])
+
+    # Xoá danh sách cặp/đội & trận đấu cũ
     clear_competitors_and_matches(t_id)
     conn = get_conn()
-    if len([g for g in groups if g]) >= 2:
-        g_list = sorted([g for g in groups if g])
-        random.seed()
-        for i in range(len(g_list)//2):
-            hi = g_map[g_list[i]][:]; lo = g_map[g_list[-i-1]][:]
-            random.shuffle(hi); random.shuffle(lo)
-            for k in range(min(len(hi), len(lo))): create_competitor(conn, t_id, [hi[k]["user_id"], lo[k]["user_id"]])
+    random.seed()
+
+    unpaired = []  # danh sách VĐV không được ghép
+
+    if len(named_groups) >= 1:
+        # ===== Trường hợp có phân nhóm =====
+
+        # 1. Ghép nhóm đối xứng: A–E, B–D, ...
+        left = 0
+        right = len(named_groups) - 1
+
+        while left < right:
+            gl = named_groups[left]
+            gr = named_groups[right]
+
+            left_players = group_map.get(gl, [])[:]
+            right_players = group_map.get(gr, [])[:]
+
+            random.shuffle(left_players)
+            random.shuffle(right_players)
+
+            max_pairs = min(len(left_players), len(right_players))
+
+            # Ghép cặp từ 2 nhóm đối xứng
+            for i in range(max_pairs):
+                create_competitor(
+                    conn,
+                    t_id,
+                    [left_players[i]["user_id"], right_players[i]["user_id"]],
+                )
+
+            # Người dư ra (nếu có) → chưa ghép
+            for p in left_players[max_pairs:]:
+                unpaired.append(p)
+            for p in right_players[max_pairs:]:
+                unpaired.append(p)
+
+            left += 1
+            right -= 1
+
+        # 2. Nếu số nhóm lẻ -> xử lý nhóm giữa
+        if len(named_groups) % 2 == 1:
+            mid_idx = len(named_groups) // 2
+            gm = named_groups[mid_idx]
+
+            middle_players = group_map.get(gm, [])[:]
+            random.shuffle(middle_players)
+
+            # Ghép nội bộ trong nhóm giữa: (1-2), (3-4), ...
+            for i in range(0, len(middle_players) - 1, 2):
+                create_competitor(
+                    conn,
+                    t_id,
+                    [middle_players[i]["user_id"], middle_players[i + 1]["user_id"]],
+                )
+
+            # Nếu lẻ 1 người → không được ghép
+            if len(middle_players) % 2 == 1:
+                unpaired.append(middle_players[-1])
+
     else:
-        hnpr = compute_hnpr(); s_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
+        # ===== Trường hợp không có group: fallback HNPR như cũ =====
+        hnpr = compute_hnpr()
+        s_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
+
+        # Sắp theo HNPR (mạnh -> yếu), ai không có HNPR thì đẩy xuống cuối
         p_sorted = sorted(players, key=lambda p: s_map.get(p["user_id"], 9999))
-        n = len(p_sorted); half = n//2; top = p_sorted[:half]; bot = p_sorted[half:]; random.shuffle(top); random.shuffle(bot)
-        for i in range(min(len(top), len(bot))): create_competitor(conn, t_id, [top[i]["user_id"], bot[i]["user_id"]])
-    conn.commit(); conn.close()
+
+        n = len(p_sorted)
+        half = n // 2
+        top = p_sorted[:half]
+        bot = p_sorted[half:]
+
+        random.shuffle(top)
+        random.shuffle(bot)
+
+        max_pairs = min(len(top), len(bot))
+
+        for i in range(max_pairs):
+            create_competitor(
+                conn,
+                t_id,
+                [top[i]["user_id"], bot[i]["user_id"]],
+            )
+
+        # Người dư ra (nếu số VĐV lẻ) → cảnh báo
+        for p in top[max_pairs:]:
+            unpaired.append(p)
+        for p in bot[max_pairs:]:
+            unpaired.append(p)
+
+    conn.commit()
+    conn.close()
+
+    # Cảnh báo nếu có VĐV chưa được ghép
+    if unpaired:
+        try:
+            names = ", ".join(p["full_name"] for p in unpaired)
+        except Exception:
+            # fallback an toàn nếu kiểu row khác
+            names = ", ".join(str(p) for p in unpaired)
+        st.warning(
+            f"Còn {len(unpaired)} VĐV chưa được ghép cặp: {names}"
+        )
 
 def make_teams_for_tournament(t_id, num_teams):
+    """
+    Chia đội dựa trên phân nhóm:
+    - Các nhóm (A, B, C, D, ...) được coi là các tầng trình độ, A mạnh nhất.
+    - Với mỗi nhóm: xáo ngẫu nhiên, rồi phân vòng tròn vào các đội.
+    => Mỗi đội có cùng số thành viên từ mỗi nhóm (nếu số lượng nhóm chia hết cho số đội).
+    """
     players = get_tournament_players(t_id)
-    if len(players) < num_teams: st.warning("Số đội > VĐV."); return
-    hnpr = compute_hnpr(); s_map = {r["user_id"]: r["avg_pos"] for r in hnpr}
-    def g_idx(g): return ord(g[0].upper()) - ord('A') if g else 99
-    p_sorted = sorted(players, key=lambda p: (g_idx(p["group_name"]), s_map.get(p["user_id"], 9999)))
-    random.shuffle(p_sorted)
-    t_mems = {i: [] for i in range(num_teams)}; idx = 0
-    for p in p_sorted: t_mems[idx].append(p["user_id"]); idx = (idx+1)%num_teams
+
+    # 1. Kiểm tra đủ VĐV tối thiểu
+    if len(players) < num_teams:
+        st.warning("Số đội lớn hơn số VĐV, không thể chia.")
+        return
+
+    # 2. Gom theo group_name
+    group_map = {}
+    for p in players:
+        gname = p["group_name"] or ""   # nhóm rỗng cho vào ""
+        group_map.setdefault(gname, []).append(p)
+
+    if not group_map:
+        st.warning("Chưa có phân nhóm, hãy phân nhóm trước khi chia đội.")
+        return
+
+    # 3. Sắp xếp thứ tự nhóm:
+    #    - Nhóm có tên (A, B, C, ...) trước, theo alphabet
+    #    - Nhóm rỗng "" (không phân nhóm) xếp cuối, coi như yếu nhất
+    group_keys = sorted(group_map.keys(), key=lambda g: (g == "" or g is None, g))
+
+    # 4. Kiểm tra từng nhóm có chia đều cho số đội không
+    for g in group_keys:
+        cnt = len(group_map[g])
+        if cnt % num_teams != 0:
+            label = g if g else "Không nhóm"
+            st.error(
+                f"Nhóm {label} có {cnt} VĐV, không chia đều được cho {num_teams} đội.\n"
+                f"Vui lòng điều chỉnh lại phân nhóm hoặc giảm/tăng số đội."
+            )
+            return
+
+    # 5. Khởi tạo danh sách thành viên cho từng đội
+    team_members = {i: [] for i in range(num_teams)}
+
+    # 6. Với từng group: random rồi phân vòng tròn vào đội
+    random.seed()
+    for g in group_keys:
+        group_players = group_map[g][:]   # copy list
+        random.shuffle(group_players)
+
+        # Phân lần lượt: người i -> đội (i % num_teams)
+        for idx, p in enumerate(group_players):
+            team_idx = idx % num_teams
+            team_members[team_idx].append(p["user_id"])
+
+    # 7. Xoá đội & lịch sử cũ, tạo lại competitors và competitor_members
     clear_competitors_and_matches(t_id)
-    conn = get_conn(); cur = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
+
     for i in range(num_teams):
-        cur.execute("INSERT INTO competitors (tournament_id, name, kind) VALUES (?, ?, 'team')", (t_id, f"Đội {i+1}"))
+        team_name = f"Đội {i+1}"
+        cur.execute(
+            "INSERT INTO competitors (tournament_id, name, kind) VALUES (?, ?, 'team')",
+            (t_id, team_name),
+        )
         cid = cur.lastrowid
-        for uid in t_mems[i]: cur.execute("INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)", (cid, uid))
-    conn.commit(); conn.close()
+
+        for uid in team_members[i]:
+            cur.execute(
+                "INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)",
+                (cid, uid),
+            )
+
+    conn.commit()
+    conn.close()
+    st.success("Đã chia đội tự động dựa trên phân nhóm.")
 
 def ui_tournament_pairs_teams_view(t_id):
     t = get_tournament_by_id(t_id)
