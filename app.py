@@ -866,7 +866,7 @@ def get_competitor_members_map(t_id):
 
     def group_rank(g):
         if not g:
-            return 999  # chưa phân nhóm → xuống cuối
+            return 999  # chưa phân nhóm trình → xuống cuối
         return ord(g.upper()) - ord("A")
 
     m_map = {}
@@ -1585,7 +1585,7 @@ def ui_home():
             if use_pools:
                 tabs_list = [
                     "Thành viên",
-                    "Phân nhóm",
+                    "Phân nhóm trình",
                     pair_team_label,
                     "Phân bảng",
                     "Lịch & Kết quả",
@@ -1594,7 +1594,7 @@ def ui_home():
             else:
                 tabs_list = [
                     "Thành viên",
-                    "Phân nhóm",
+                    "Phân nhóm trình",
                     pair_team_label,
                     "Lịch & Kết quả",
                     "Xếp hạng",
@@ -2111,7 +2111,7 @@ def ui_tournament_detail_page(t_id: int):
     </div>
     """, unsafe_allow_html=True)
     pair_team_label = "Chia cặp" if ctype == "pair" else "Chia đội"
-    tabs_list = ["Thành viên", "Phân nhóm", pair_team_label, "Phân bảng", "Lịch & KQ", "Xếp hạng"] if use_pools else ["Thành viên", "Phân nhóm", pair_team_label, "Lịch & KQ", "Xếp hạng"]
+    tabs_list = ["Thành viên", "Phân nhóm trình", pair_team_label, "Phân bảng", "Lịch & KQ", "Xếp hạng"] if use_pools else ["Thành viên", "Phân nhóm trình", pair_team_label, "Lịch & KQ", "Xếp hạng"]
     tabs = st.tabs(tabs_list)
     with tabs[0]: ui_tournament_players(t_id)
     with tabs[1]: ui_tournament_groups(t_id)
@@ -2287,7 +2287,7 @@ def ui_tournament_groups_view(t_id):
     conn.close()
 
     if not rows:
-        st.info("Chưa phân nhóm (hoặc chưa có VĐV được duyệt).")
+        st.info("Chưa phân nhóm trình (hoặc chưa có VĐV được duyệt).")
         return
 
     g_map = {}
@@ -2306,12 +2306,12 @@ def ui_tournament_groups(t_id):
     ui_tournament_groups_view(t_id)
     players = get_tournament_players(t_id)
     if not players:
-        st.warning("Chưa có VĐV đã được duyệt để phân nhóm.")
+        st.warning("Chưa có VĐV đã được duyệt để phân nhóm trình.")
         return
 
     # ==== 2. Khu vực cấu hình trong 1 collapse ====
-    with st.expander("⚙️ Cấu hình / chỉnh sửa phân nhóm", expanded=False):
-        st.markdown("#### Cấu hình phân nhóm")
+    with st.expander("⚙️ Cấu hình / chỉnh sửa phân nhóm trình", expanded=False):
+        st.markdown("#### Cấu hình phân nhóm trình")
 
         # Cấu hình số nhóm + số lượng (phục vụ cho chế độ tự động)
         c1, c2 = st.columns([1, 2])
@@ -2334,18 +2334,18 @@ def ui_tournament_groups(t_id):
             g_defs.append((gn, int(gs)))
 
         mode = st.radio(
-            "##### Cách phân nhóm",
-            ["Phân nhóm tự động (theo HNPR)", "Phân nhóm bằng tay"],
+            "##### Cách phân nhóm trình",
+            ["Phân nhóm trình tự động (theo HNPR)", "Phân nhóm trình bằng tay"],
             index=0,
             horizontal=True,
             key=f"group_mode_{t_id}",
         )
 
         # ====== MODE 1: TỰ ĐỘNG THEO HNPR ======
-        if mode.startswith("Phân nhóm tự động"):
+        if mode.startswith("Phân nhóm trình tự động"):
             c_x, _ = st.columns(2)
 
-            if c_x.button("⚡ Phân nhóm tự động", key=f"auto_group_{t_id}"):
+            if c_x.button("⚡ Phân nhóm trình tự động", key=f"auto_group_{t_id}"):
                 total_players = len(players)
                 sizes = [size for _, size in g_defs]
                 total_cfg = sum(sizes)
@@ -2413,7 +2413,7 @@ def ui_tournament_groups(t_id):
                     )
                 conn.commit()
                 conn.close()
-                st.success("Đã phân nhóm tự động theo HNPR/ABC.")
+                st.success("Đã phân nhóm trình tự động theo HNPR/ABC.")
                 st.rerun()
 
         # ====== MODE 2: PHÂN NHÓM BẰNG TAY (RADIO, SẮP THEO HNPR) ======
@@ -2481,7 +2481,7 @@ def ui_tournament_groups(t_id):
                         )
 
                 submitted = st.form_submit_button(
-                    "💾 Lưu phân nhóm bằng tay",
+                    "💾 Lưu phân nhóm trình bằng tay",
                     type="primary",
                 )
 
@@ -2502,7 +2502,7 @@ def ui_tournament_groups(t_id):
                             final_group[uid] = sel
 
                     if errors:
-                        st.error("Có lỗi trong phân nhóm, vui lòng kiểm tra lại:")
+                        st.error("Có lỗi trong phân nhóm trình, vui lòng kiểm tra lại:")
                         for e in errors:
                             st.write(e)
                     else:
@@ -2528,7 +2528,7 @@ def ui_tournament_groups(t_id):
 
                         if sym_errors:
                             st.error(
-                                "Phân nhóm chưa đúng nguyên tắc đối xứng, "
+                                "Phân nhóm trình chưa đúng nguyên tắc đối xứng, "
                                 "vui lòng điều chỉnh lại:"
                             )
                             for e in sym_errors:
@@ -2545,11 +2545,11 @@ def ui_tournament_groups(t_id):
                                 )
                             conn.commit()
                             conn.close()
-                            st.success("Đã cập nhật phân nhóm bằng tay.")
+                            st.success("Đã cập nhật phân nhóm trình bằng tay.")
                             st.rerun()
 
-        # Nút xoá phân nhóm dùng chung cho cả 2 mode
-        if st.button("🗑 Xóa toàn bộ phân nhóm", key=f"clear_groups_{t_id}"):
+        # Nút xoá phân nhóm trình dùng chung cho cả 2 mode
+        if st.button("🗑 Xóa toàn bộ phân nhóm trình", key=f"clear_groups_{t_id}"):
             conn = get_conn()
             cur = conn.cursor()
             cur.execute(
@@ -2558,12 +2558,12 @@ def ui_tournament_groups(t_id):
             )
             conn.commit()
             conn.close()
-            st.success("Đã xoá toàn bộ phân nhóm.")
+            st.success("Đã xoá toàn bộ phân nhóm trình.")
             st.rerun()
 
 def make_pairs_for_tournament(t_id):
     """
-    Ghép cặp dựa trên phân nhóm:
+    Ghép cặp dựa trên phân nhóm trình:
     - Nhặt ngẫu nhiên 2 thành viên ở 2 nhóm đối xứng (A–D, B–C, ...)
     - Nếu số nhóm lẻ: nhóm giữa ghép nội bộ ngẫu nhiên.
     - Cảnh báo nếu còn VĐV không được ghép (do lệch số lượng).
@@ -2591,7 +2591,7 @@ def make_pairs_for_tournament(t_id):
     unpaired = []  # danh sách VĐV không được ghép
 
     if len(named_groups) >= 1:
-        # ===== Trường hợp có phân nhóm =====
+        # ===== Trường hợp có phân nhóm trình =====
 
         # 1. Ghép nhóm đối xứng: A–E, B–D, ...
         left = 0
@@ -2693,7 +2693,7 @@ def make_pairs_for_tournament(t_id):
 
 def make_teams_for_tournament(t_id, num_teams):
     """
-    Chia đội dựa trên phân nhóm:
+    Chia đội dựa trên phân nhóm trình:
     - Các nhóm (A, B, C, D, ...) được coi là các tầng trình độ, A mạnh nhất.
     - Với mỗi nhóm: xáo ngẫu nhiên, rồi phân vòng tròn vào các đội.
     => Mỗi đội có cùng số thành viên từ mỗi nhóm (nếu số lượng nhóm chia hết cho số đội).
@@ -2712,12 +2712,12 @@ def make_teams_for_tournament(t_id, num_teams):
         group_map.setdefault(gname, []).append(p)
 
     if not group_map:
-        st.warning("Chưa có phân nhóm, hãy phân nhóm trước khi chia đội.")
+        st.warning("Chưa có phân nhóm trình, hãy phân nhóm trình trước khi chia đội.")
         return
 
     # 3. Sắp xếp thứ tự nhóm:
     #    - Nhóm có tên (A, B, C, ...) trước, theo alphabet
-    #    - Nhóm rỗng "" (không phân nhóm) xếp cuối, coi như yếu nhất
+    #    - Nhóm rỗng "" (không phân nhóm trình) xếp cuối, coi như yếu nhất
     group_keys = sorted(group_map.keys(), key=lambda g: (g == "" or g is None, g))
 
     # 4. Kiểm tra từng nhóm có chia đều cho số đội không
@@ -2727,7 +2727,7 @@ def make_teams_for_tournament(t_id, num_teams):
             label = g if g else "Không nhóm"
             st.error(
                 f"Nhóm {label} có {cnt} VĐV, không chia đều được cho {num_teams} đội.\n"
-                f"Vui lòng điều chỉnh lại phân nhóm hoặc giảm/tăng số đội."
+                f"Vui lòng điều chỉnh lại phân nhóm trình hoặc giảm/tăng số đội."
             )
             return
 
@@ -2766,7 +2766,7 @@ def make_teams_for_tournament(t_id, num_teams):
 
     conn.commit()
     conn.close()
-    st.success("Đã chia đội tự động dựa trên phân nhóm.")
+    st.success("Đã chia đội tự động dựa trên phân nhóm trình.")
 
 def ui_tournament_pairs_teams_view(t_id):
     t = get_tournament_by_id(t_id)
@@ -2778,7 +2778,7 @@ def ui_tournament_pairs_teams_view(t_id):
         st.info("Chưa có danh sách thi đấu.")
         return
 
-    # THI ĐẤU THEO ĐỘI -> hiển thị giống tab "Phân nhóm"
+    # THI ĐẤU THEO ĐỘI -> hiển thị giống tab "Phân nhóm trình"
     if ctype == "team":
         st.markdown("### 🏅 Danh sách các đội")
 
@@ -2789,7 +2789,7 @@ def ui_tournament_pairs_teams_view(t_id):
             members = [m[1] for m in m_map.get(c["id"], [])]
 
             with cols[i % num_cols]:
-                # Giống kiểu Nhóm A/B ở tab phân nhóm
+                # Giống kiểu Nhóm A/B ở tab phân nhóm trình
                 st.info(f"**{c['name']}** ({len(members)} VĐV)")
                 for n in members:
                     st.markdown(f"• {n}")
@@ -3022,8 +3022,8 @@ def ui_tournament_results(t_id):
                 st.info("ℹ️ Trận tiếp sức: Không cần chọn từng thành viên.")
 
         sc1, sc2 = st.columns(2)
-        scr1 = sc1.number_input("Điểm 1", 0, 100, 11)
-        scr2 = sc2.number_input("Điểm 2", 0, 100, 9)
+        scr1 = sc1.number_input("Điểm 1", 0, 100, 0)
+        scr2 = sc2.number_input("Điểm 2", 0, 100, 0)
         
         if st.button("Lưu KQ", type="primary"):
             cid1 = c_map[s1]; cid2 = c_map[s2]
