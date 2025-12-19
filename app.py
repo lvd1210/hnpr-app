@@ -375,6 +375,10 @@ def init_db():
         cur.execute("ALTER TABLE matches ADD COLUMN team2_p1_id INTEGER")
     if "team2_p2_id" not in mcols:
         cur.execute("ALTER TABLE matches ADD COLUMN team2_p2_id INTEGER")
+    # --- BỔ SUNG MỚI: Cột match_type ---
+    if "match_type" not in mcols:
+        # Giá trị mặc định là 'standard' (trận thường)
+        cur.execute("ALTER TABLE matches ADD COLUMN match_type TEXT DEFAULT 'standard'")
 
     conn.commit()
 
@@ -852,15 +856,21 @@ def get_matches(tournament_id):
     conn.close()
     return rows
 
-def add_match(tournament_id, comp1_id, comp2_id, score1, score2, reporter_id, auto_confirm=True, team_players=None):
+# Tìm hàm add_match và thay thế bằng phiên bản này:
+def add_match(tournament_id, comp1_id, comp2_id, score1, score2, reporter_id, auto_confirm=True, team_players=None, match_type="standard"):
     if score1 == score2:
         st.warning("Hệ thống chưa hỗ trợ hoà.")
         return
     winner_id = comp1_id if score1 > score2 else comp2_id
     t1_p1, t1_p2, t2_p1, t2_p2 = team_players if team_players else (None, None, None, None)
+    
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO matches (tournament_id, competitor1_id, competitor2_id, score1, score2, winner_id, reported_by, confirmed_by, team1_p1_id, team1_p2_id, team2_p1_id, team2_p2_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (tournament_id, comp1_id, comp2_id, score1, score2, winner_id, reporter_id, reporter_id if auto_confirm else None, t1_p1, t1_p2, t2_p1, t2_p2))
+    cur.execute("""
+        INSERT INTO matches 
+        (tournament_id, competitor1_id, competitor2_id, score1, score2, winner_id, reported_by, confirmed_by, team1_p1_id, team1_p2_id, team2_p1_id, team2_p2_id, match_type) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (tournament_id, comp1_id, comp2_id, score1, score2, winner_id, reporter_id, reporter_id if auto_confirm else None, t1_p1, t1_p2, t2_p1, t2_p2, match_type))
     conn.commit()
     conn.close()
 
@@ -868,19 +878,40 @@ def compute_standings(tournament_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT c.id, c.name FROM competitors c WHERE c.tournament_id = ?", (tournament_id,))
-    competitors = {r["id"]: {"name": r["name"], "wins": 0, "pts_for": 0, "pts_against": 0} for r in cur.fetchall()}
+    # Thêm trường 'points' để tính điểm xếp hạng
+    competitors = {r["id"]: {"name": r["name"], "wins": 0, "points": 0, "pts_for": 0, "pts_against": 0} for r in cur.fetchall()}
+    
     cur.execute("SELECT * FROM matches WHERE tournament_id = ? AND confirmed_by IS NOT NULL", (tournament_id,))
     for m in cur.fetchall():
         c1 = m["competitor1_id"]; c2 = m["competitor2_id"]; s1 = m["score1"]; s2 = m["score2"]
+        # Xác định điểm thưởng cho trận này
+        m_type = m["match_type"] if "match_type" in m.keys() and m["match_type"] else "standard"
+        win_pts = 4 if m_type == "relay" else 2
+        
         competitors[c1]["pts_for"] += s1; competitors[c1]["pts_against"] += s2
         competitors[c2]["pts_for"] += s2; competitors[c2]["pts_against"] += s1
-        if m["winner_id"] == c1: competitors[c1]["wins"] += 1
-        elif m["winner_id"] == c2: competitors[c2]["wins"] += 1
+        
+        if m["winner_id"] == c1: 
+            competitors[c1]["wins"] += 1
+            competitors[c1]["points"] += win_pts
+        elif m["winner_id"] == c2: 
+            competitors[c2]["wins"] += 1
+            competitors[c2]["points"] += win_pts
+            
     conn.close()
     table = []
     for cid, info in competitors.items():
-        table.append({"id": cid, "name": info["name"], "wins": info["wins"], "pts_for": info["pts_for"], "pts_against": info["pts_against"], "diff": info["pts_for"] - info["pts_against"]})
-    table.sort(key=lambda x: (-x["wins"], -x["diff"], x["name"]))
+        table.append({
+            "id": cid, 
+            "name": info["name"], 
+            "points": info["points"], # Điểm xếp hạng
+            "wins": info["wins"],     # Số trận thắng
+            "pts_for": info["pts_for"], 
+            "pts_against": info["pts_against"], 
+            "diff": info["pts_for"] - info["pts_against"]
+        })
+    # Sắp xếp theo: Điểm số -> Hiệu số -> Tên
+    table.sort(key=lambda x: (-x["points"], -x["diff"], x["name"]))
     return table
 
 def compute_pool_standings(tournament_id):
@@ -893,17 +924,28 @@ def compute_pool_standings(tournament_id):
     for c in comps:
         pool = c["pool_name"]
         pool_map.setdefault(pool, {})
-        pool_map[pool][c["id"]] = {"id": c["id"], "name": c["name"], "wins": 0, "pts_for": 0, "pts_against": 0, "diff": 0}
+        # Thêm field 'points'
+        pool_map[pool][c["id"]] = {"id": c["id"], "name": c["name"], "wins": 0, "points": 0, "pts_for": 0, "pts_against": 0, "diff": 0}
+    
     cur.execute("SELECT * FROM matches WHERE tournament_id = ? AND confirmed_by IS NOT NULL", (tournament_id,))
     matches = cur.fetchall()
     for m in matches:
         c1 = m["competitor1_id"]; c2 = m["competitor2_id"]; s1 = m["score1"]; s2 = m["score2"]
+        
+        m_type = m["match_type"] if "match_type" in m.keys() and m["match_type"] else "standard"
+        win_pts = 4 if m_type == "relay" else 2
+
         for pool, comp_dict in pool_map.items():
             if c1 in comp_dict and c2 in comp_dict:
                 comp_dict[c1]["pts_for"] += s1; comp_dict[c1]["pts_against"] += s2
                 comp_dict[c2]["pts_for"] += s2; comp_dict[c2]["pts_against"] += s1
-                if m["winner_id"] == c1: comp_dict[c1]["wins"] += 1
-                elif m["winner_id"] == c2: comp_dict[c2]["wins"] += 1
+                
+                if m["winner_id"] == c1: 
+                    comp_dict[c1]["wins"] += 1
+                    comp_dict[c1]["points"] += win_pts
+                elif m["winner_id"] == c2: 
+                    comp_dict[c2]["wins"] += 1
+                    comp_dict[c2]["points"] += win_pts
                 break
     conn.close()
     result = {}
@@ -912,7 +954,8 @@ def compute_pool_standings(tournament_id):
         for cid, info in comp_dict.items():
             info["diff"] = info["pts_for"] - info["pts_against"]
             lst.append(info)
-        lst.sort(key=lambda x: (-x["wins"], -x["diff"], x["name"]))
+        # Sắp xếp theo: Điểm số -> Hiệu số -> Tên
+        lst.sort(key=lambda x: (-x["points"], -x["diff"], x["name"]))
         result[pool] = lst
     return result
 
@@ -927,7 +970,7 @@ def ui_login_register():
     with col_center:
         tab_login, tab_register = st.tabs(["Đăng nhập", "Đăng ký"])
 
-        # TAB ĐĂNG NHẬP1
+        # TAB ĐĂNG NHẬP
         with tab_login:
             st.write(" ")
             username = st.text_input(
@@ -2713,15 +2756,118 @@ def ui_tournament_pairs_teams_view(t_id):
             with cols[i % 3]:
                 st.success(f"{build_competitor_display_name(c['id'], m_map)}")
 
+def ui_manual_team_assignment(t_id, num_teams):
+    players = get_tournament_players(t_id)
+    if not players:
+        st.warning("Chưa có VĐV.")
+        return
+
+    # Sắp xếp theo HNPR → ABC
+    hnpr = compute_hnpr()
+    rank_map = {r["user_id"]: idx for idx, r in enumerate(hnpr)}
+    players_sorted = sorted(
+        players,
+        key=lambda p: (rank_map.get(p["user_id"], 9999), p["full_name"]),
+    )
+
+    team_labels = [f"Đội {i+1}" for i in range(num_teams)]
+    options = ["(Chưa chọn)"] + team_labels
+    selection = {}
+
+    with st.form(f"manual_team_form_{t_id}"):
+        for p in players_sorted:
+            uid = p["user_id"]
+            name = p["full_name"]
+
+            col_l, col_r = st.columns([0.6, 0.4])
+            with col_l:
+                st.markdown(f"👤 **{name}**")
+            with col_r:
+                sel = st.radio(
+                    "",
+                    options,
+                    horizontal=True,
+                    key=f"team_{t_id}_{uid}",
+                    label_visibility="collapsed",
+                )
+                selection[uid] = sel if sel != "(Chưa chọn)" else None
+
+        submitted = st.form_submit_button("💾 Lưu chia đội bằng tay", type="primary")
+
+    if not submitted:
+        return
+
+    # ===== VALIDATE =====
+    errors = []
+    team_map = {lbl: [] for lbl in team_labels}
+
+    for p in players_sorted:
+        uid = p["user_id"]
+        sel = selection.get(uid)
+        if not sel:
+            errors.append(f"- {p['full_name']} chưa được gán đội.")
+        else:
+            team_map[sel].append(uid)
+
+    if errors:
+        st.error("Có lỗi:")
+        for e in errors:
+            st.write(e)
+        return
+
+    # ===== SAVE =====
+    clear_competitors_and_matches(t_id)
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for team_name, uids in team_map.items():
+        cur.execute(
+            "INSERT INTO competitors (tournament_id, name, kind) VALUES (?, ?, 'team')",
+            (t_id, team_name),
+        )
+        cid = cur.lastrowid
+        for uid in uids:
+            cur.execute(
+                "INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)",
+                (cid, uid),
+            )
+
+    conn.commit()
+    conn.close()
+    st.success("Đã chia đội bằng tay.")
+    st.rerun()
+
 def ui_tournament_pairs_teams(t_id):
-    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
-    st.markdown(f"#### Tạo {'Cặp' if ctype == 'pair' else 'Đội'} thi đấu")
-    if ctype == "pair":
-        if st.button("⚡ Ghép cặp tự động", type="primary"): make_pairs_for_tournament(t_id); st.success("Xong."); st.rerun()
+    t = get_tournament_by_id(t_id)
+    ctype = t["competition_type"]
+    st.markdown("#### Tạo Đội thi đấu")
+
+    if ctype != "team":
+        if st.button("⚡ Ghép cặp tự động", type="primary"):
+            make_pairs_for_tournament(t_id)
+            st.success("Xong.")
+            st.rerun()
+        return
+
+    # ===== TEAM MODE =====
+    c1, c2 = st.columns([1, 2])
+    num_teams = c1.number_input("Số đội", 2, 16, 4, key=f"nt_{t_id}")
+
+    mode = st.radio(
+        "##### Cách chia đội",
+        ["Chia đội tự động", "Chia đội bằng tay"],
+        horizontal=True,
+        key=f"team_mode_{t_id}",
+    )
+
+    if mode == "Chia đội tự động":
+        if c2.button("⚡ Chia đội tự động", type="primary"):
+            make_teams_for_tournament(t_id, int(num_teams))
+            st.success("Xong.")
+            st.rerun()
     else:
-        c1, c2 = st.columns([1, 2])
-        nt = c1.number_input("Số đội", 2, 16, 4)
-        if c2.button("⚡ Chia đội tự động", type="primary"): make_teams_for_tournament(t_id, int(nt)); st.success("Xong."); st.rerun()
+        ui_manual_team_assignment(t_id, int(num_teams))
+
     ui_tournament_pairs_teams_view(t_id)
 
 def ui_tournament_pools_view(t_id):
@@ -2757,14 +2903,28 @@ def ui_tournament_results_view(t_id):
     t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
     matches = get_matches(t_id); m_map = get_competitor_members_map(t_id)
     if not matches: st.info("Chưa có trận đấu."); return
+    
     for m in matches:
+        m_type = m["match_type"] if "match_type" in m.keys() and m["match_type"] else "standard"
+        
         if ctype == "team":
             def gn(p1, p2): return ", ".join([get_user_by_id(uid)["full_name"] for uid in [p1, p2] if uid])
-            n1 = f"{m['name1']} <br><small>({gn(m['team1_p1_id'], m['team1_p2_id'])})</small>"
-            n2 = f"{m['name2']} <br><small>({gn(m['team2_p1_id'], m['team2_p2_id'])})</small>"
+            
+            if m_type == "relay":
+                # Trận tiếp sức
+                sub_info1 = "<span style='color:#d97706; font-size:0.8rem;'>★ TIẾP SỨC</span>"
+                sub_info2 = "<span style='color:#d97706; font-size:0.8rem;'>★ TIẾP SỨC</span>"
+            else:
+                # Trận thường
+                sub_info1 = f"<small>({gn(m['team1_p1_id'], m['team1_p2_id'])})</small>"
+                sub_info2 = f"<small>({gn(m['team2_p1_id'], m['team2_p2_id'])})</small>"
+                
+            n1 = f"{m['name1']} <br>{sub_info1}"
+            n2 = f"{m['name2']} <br>{sub_info2}"
         else:
             n1 = build_competitor_display_name(m["competitor1_id"], m_map)
             n2 = build_competitor_display_name(m["competitor2_id"], m_map)
+            
         st.markdown(f"""
         <div style="background:white; padding:15px; border-radius:8px; border:1px solid #eee; margin-bottom:10px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2775,55 +2935,111 @@ def ui_tournament_results_view(t_id):
         </div>""", unsafe_allow_html=True)
 
 def ui_tournament_results(t_id):
-    t = get_tournament_by_id(t_id); ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
-    comps = get_competitors(t_id); m_map = get_competitor_members_map(t_id)
+    t = get_tournament_by_id(t_id)
+    ctype = t["competition_type"] if "competition_type" in t.keys() else "pair"
+    comps = get_competitors(t_id)
+    m_map = get_competitor_members_map(t_id)
     if not comps: return
+
     with st.expander("📝 Nhập kết quả", expanded=True):
         labels = []; c_map = {}
         for c in comps:
             lbl = c["name"] if c["kind"]=="team" else build_competitor_display_name(c["id"], m_map)
             labels.append(lbl); c_map[lbl] = c["id"]
-        c1, c2 = st.columns(2); s1 = c1.selectbox("Đội 1", labels, key=f"s1_{t_id}"); s2 = c2.selectbox("Đội 2", labels, key=f"s2_{t_id}")
-        tp = None; t1i = []; t2i = []
+        
+        # --- BỔ SUNG: Chọn loại trận ---
+        match_type_val = "standard"
         if ctype == "team":
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                st.write(f"**{s1}**")
-                for uid, n in m_map.get(c_map[s1], []):
-                    if st.checkbox(n, key=f"t1_{uid}"): t1i.append(uid)
-            with cc2:
-                st.write(f"**{s2}**")
-                for uid, n in m_map.get(c_map[s2], []):
-                    if st.checkbox(n, key=f"t2_{uid}"): t2i.append(uid)
-        sc1, sc2 = st.columns(2); scr1 = sc1.number_input("Điểm 1", 0, 100, 11); scr2 = sc2.number_input("Điểm 2", 0, 100, 9)
+            # Nếu là giải đội, cho phép chọn loại trận
+            mt_display = st.radio("Loại trận đấu", ["Trận thường (2 điểm)", "Trận tiếp sức (4 điểm)"], horizontal=True)
+            match_type_val = "relay" if "tiếp sức" in mt_display.lower() else "standard"
+        
+        c1, c2 = st.columns(2)
+        s1 = c1.selectbox("Đội 1", labels, key=f"s1_{t_id}")
+        s2 = c2.selectbox("Đội 2", labels, key=f"s2_{t_id}")
+        
+        tp = None; t1i = []; t2i = []
+        
+        # Chỉ hiện chọn VĐV nếu là giải Team VÀ là Trận thường
+        if ctype == "team":
+            if match_type_val == "standard":
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    st.write(f"**Chọn 2 VĐV {s1}:**")
+                    for uid, n in m_map.get(c_map[s1], []):
+                        if st.checkbox(n, key=f"t1_{uid}"): t1i.append(uid)
+                with cc2:
+                    st.write(f"**Chọn 2 VĐV {s2}:**")
+                    for uid, n in m_map.get(c_map[s2], []):
+                        if st.checkbox(n, key=f"t2_{uid}"): t2i.append(uid)
+            else:
+                st.info("ℹ️ Trận tiếp sức: Không cần chọn từng thành viên.")
+
+        sc1, sc2 = st.columns(2)
+        scr1 = sc1.number_input("Điểm 1", 0, 100, 11)
+        scr2 = sc2.number_input("Điểm 2", 0, 100, 9)
+        
         if st.button("Lưu KQ", type="primary"):
             cid1 = c_map[s1]; cid2 = c_map[s2]
             if cid1 == cid2: st.error("Trùng đội."); return
-            if ctype == "team" and (len(t1i)!=2 or len(t2i)!=2): st.error("Chọn đúng 2 VĐV/đội."); return
-            if ctype == "team": tp = (t1i[0], t1i[1], t2i[0], t2i[1])
-            add_match(t_id, cid1, cid2, int(scr1), int(scr2), st.session_state["user"]["id"], True, tp)
+            
+            # Logic kiểm tra số lượng VĐV chỉ áp dụng cho Trận thường
+            if ctype == "team" and match_type_val == "standard" and (len(t1i)!=2 or len(t2i)!=2): 
+                st.error("Vui lòng chọn đúng 2 VĐV mỗi đội cho trận thường."); return
+                
+            if ctype == "team" and match_type_val == "standard": 
+                tp = (t1i[0], t1i[1], t2i[0], t2i[1])
+                
+            # Gọi hàm add_match với tham số match_type
+            add_match(t_id, cid1, cid2, int(scr1), int(scr2), st.session_state["user"]["id"], True, tp, match_type=match_type_val)
             st.success("Lưu thành công."); st.rerun()
+            
     ui_tournament_results_view(t_id)
 
 def ui_tournament_standings(t_id):
-    t = get_tournament_by_id(t_id); use_pools = bool(t["use_pools"]); adv = t["adv_per_pool"]; m_map = get_competitor_members_map(t_id)
+    t = get_tournament_by_id(t_id)
+    use_pools = bool(t["use_pools"])
+    adv = t["adv_per_pool"]
+    # Không cần lấy m_map nữa vì không cần hiển thị tên thành viên
+    # m_map = get_competitor_members_map(t_id) 
+    
     st.markdown("### 🏆 Bảng xếp hạng")
+    
     if use_pools:
         ps = compute_pool_standings(t_id)
-        if not ps: st.info("Chưa có dữ liệu."); return
+        if not ps: 
+            st.info("Chưa có dữ liệu.")
+            return
+            
         for pn, lst in sorted(ps.items()):
             st.markdown(f"**Bảng {pn}**")
             q_ids = {item["id"] for item in lst[:int(adv)]} if adv else set()
             rows = []
             for i, s in enumerate(lst):
-                rows.append({"Hạng": i+1, "Tên": build_competitor_display_name(s["id"], m_map), "Thắng": s["wins"], "Hiệu số": s["diff"], "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}", "Note": "✅ Đi tiếp" if s["id"] in q_ids else ""})
+                rows.append({
+                    "Hạng": i+1, 
+                    "Tên": s["name"], # <-- SỬA TẠI ĐÂY: Chỉ lấy tên đội, bỏ phần (Thành viên...)
+                    "Điểm": s["points"],
+                    "Thắng(trận)": s["wins"], 
+                    "Hiệu số": s["diff"], 
+                    "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}", 
+                    "Note": "✅ Đi tiếp" if s["id"] in q_ids else ""
+                })
             st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         std = compute_standings(t_id)
         if std:
-            rows = [{"Hạng": i+1, "Tên": build_competitor_display_name(s["id"], m_map), "Thắng": s["wins"], "Hiệu số": s["diff"], "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}"} for i, s in enumerate(std)]
+            rows = [{
+                "Hạng": i+1, 
+                "Tên": s["name"], # <-- SỬA TẠI ĐÂY: Chỉ lấy tên đội
+                "Điểm": s["points"],
+                "Thắng(trận)": s["wins"], 
+                "Hiệu số": s["diff"], 
+                "Ghi/Thủng": f"{s['pts_for']}/{s['pts_against']}"
+            } for i, s in enumerate(std)]
             st.dataframe(rows, use_container_width=True, hide_index=True)
-        else: st.info("Chưa có dữ liệu.")
+        else: 
+            st.info("Chưa có dữ liệu.")
 
 # ------------------ Main app ------------------ #
 
