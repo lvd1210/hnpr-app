@@ -927,7 +927,7 @@ def ui_login_register():
     with col_center:
         tab_login, tab_register = st.tabs(["Đăng nhập", "Đăng ký"])
 
-        # TAB ĐĂNG NHẬP
+        # TAB ĐĂNG NHẬP1
         with tab_login:
             st.write(" ")
             username = st.text_input(
