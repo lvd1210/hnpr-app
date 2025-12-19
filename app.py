@@ -837,16 +837,62 @@ def create_competitor(conn, tournament_id, member_ids):
         cur.execute("INSERT INTO competitor_members (competitor_id, user_id) VALUES (?, ?)", (comp_id, uid))
     return comp_id
 
-def get_competitor_members_map(tournament_id):
+def get_competitor_members_map(t_id):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT c.id AS competitor_id, u.id AS user_id, u.full_name FROM competitors c JOIN competitor_members cm ON cm.competitor_id = c.id JOIN users u ON u.id = cm.user_id WHERE c.tournament_id = ? ORDER BY c.id, u.full_name", (tournament_id,))
+
+    cur.execute(
+        """
+        SELECT
+            cm.competitor_id,
+            u.id AS user_id,
+            u.full_name,
+            tp.group_name
+        FROM competitor_members cm
+        JOIN users u ON u.id = cm.user_id
+        LEFT JOIN tournament_players tp
+            ON tp.tournament_id = ?
+           AND tp.user_id = u.id
+        """,
+        (t_id,),
+    )
+
     rows = cur.fetchall()
     conn.close()
-    comp_members = {}
+
+    # ===== HNPR MAP =====
+    hnpr = compute_hnpr()
+    rank_map = {r["user_id"]: idx for idx, r in enumerate(hnpr)}
+
+    def group_rank(g):
+        if not g:
+            return 999  # chưa phân nhóm → xuống cuối
+        return ord(g.upper()) - ord("A")
+
+    m_map = {}
+
     for r in rows:
-        comp_members.setdefault(r["competitor_id"], []).append((r["user_id"], r["full_name"]))
-    return comp_members
+        m_map.setdefault(r["competitor_id"], []).append(
+            {
+                "user_id": r["user_id"],
+                "full_name": r["full_name"],
+                "group_rank": group_rank(r["group_name"]),
+                "hnpr_rank": rank_map.get(r["user_id"], 9999),
+            }
+        )
+
+    # ===== SORT MỖI ĐỘI =====
+    for cid, members in m_map.items():
+        members.sort(
+            key=lambda x: (
+                x["group_rank"],
+                x["hnpr_rank"],
+                x["full_name"].lower(),
+            )
+        )
+        m_map[cid] = [(m["user_id"], m["full_name"]) for m in members]
+
+    return m_map
 
 def get_matches(tournament_id):
     conn = get_conn()
